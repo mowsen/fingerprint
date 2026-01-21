@@ -14,12 +14,17 @@ export const prisma = new PrismaClient();
 // Create Express app
 const app = express();
 
-// Middleware
-app.use(helmet());
+// Middleware - CORS must be first
+const corsOrigin = process.env.CORS_ORIGIN || '*';
+console.log('CORS origin:', corsOrigin);
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  origin: corsOrigin,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+}));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 app.use(morgan('combined'));
 app.use(express.json({ limit: '1mb' }));
