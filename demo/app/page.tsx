@@ -5,6 +5,7 @@ import FingerprintDisplay from '@/components/FingerprintDisplay';
 
 export default function Home() {
   const [isCollecting, setIsCollecting] = useState(false);
+  const [isFlushing, setIsFlushing] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,6 +118,37 @@ export default function Home() {
     }
   };
 
+  const flushAllVisitors = async () => {
+    if (!confirm('Are you sure you want to delete ALL visitors? This cannot be undone.')) {
+      return;
+    }
+
+    setIsFlushing(true);
+    setError(null);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+      const response = await fetch(`${apiUrl}/api/fingerprint/flush`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        alert(`Flushed: ${data.deleted.visitors} visitors, ${data.deleted.fingerprints} fingerprints, ${data.deleted.sessions} sessions`);
+        // Reset state
+        setVisitorInfo(null);
+        setResult(null);
+        hasCollected.current = false;
+      } else {
+        setError('Failed to flush visitors');
+      }
+    } catch {
+      setError('Server not available');
+    } finally {
+      setIsFlushing(false);
+    }
+  };
+
   // Show loading spinner while collecting
   if (isCollecting && !result) {
     return (
@@ -140,7 +172,7 @@ export default function Home() {
           </p>
         </header>
 
-        <div className="mb-8">
+        <div className="mb-8 flex gap-4">
           <button
             onClick={collectFingerprint}
             disabled={isCollecting}
@@ -154,6 +186,21 @@ export default function Home() {
                 Collecting...
               </>
             ) : 'Collect Fingerprint'}
+          </button>
+
+          <button
+            onClick={flushAllVisitors}
+            disabled={isFlushing}
+            className="px-6 py-3 bg-red-600 text-white rounded-lg font-semibold
+                       hover:bg-red-700 disabled:bg-gray-400 disabled:cursor-not-allowed
+                       transition-colors flex items-center gap-2"
+          >
+            {isFlushing ? (
+              <>
+                <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                Flushing...
+              </>
+            ) : 'Flush All Visitors'}
           </button>
         </div>
 

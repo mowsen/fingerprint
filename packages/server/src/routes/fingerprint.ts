@@ -142,6 +142,33 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
 });
 
 /**
+ * DELETE /api/fingerprint/flush
+ * Delete all visitors, fingerprints, and sessions
+ */
+fingerprintRouter.delete('/flush', async (_req: Request, res: Response) => {
+  try {
+    const prisma = (await import('../index')).prisma;
+
+    // Delete in correct order due to foreign key constraints
+    const deletedSessions = await prisma.session.deleteMany({});
+    const deletedFingerprints = await prisma.fingerprint.deleteMany({});
+    const deletedVisitors = await prisma.visitor.deleteMany({});
+
+    return res.json({
+      success: true,
+      deleted: {
+        visitors: deletedVisitors.count,
+        fingerprints: deletedFingerprints.count,
+        sessions: deletedSessions.count,
+      },
+    });
+  } catch (error) {
+    console.error('Error flushing data:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+/**
  * GET /api/fingerprint/:id
  * Get fingerprint details by ID
  */
