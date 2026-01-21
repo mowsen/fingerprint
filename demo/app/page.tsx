@@ -8,11 +8,8 @@ export default function Home() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
-  const [visitorInfo, setVisitorInfo] = useState<{
-    visitorId: string;
-    matchType: string;
-    confidence: number;
-  } | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [visitorInfo, setVisitorInfo] = useState<any>(null);
   const hasCollected = useRef(false);
   const isWarmedUp = useRef(false);
 
@@ -135,33 +132,79 @@ export default function Home() {
         )}
 
         {visitorInfo && (
-          <div className="mb-8 p-4 bg-green-100 dark:bg-green-900 border border-green-400 rounded-lg">
-            <h3 className="font-semibold mb-2">Visitor Identification</h3>
-            <div className="grid grid-cols-3 gap-4 text-sm">
-              <div>
-                <span className="text-gray-600 dark:text-gray-400">Visitor ID:</span>
-                <br />
-                <code className="text-xs">{visitorInfo.visitorId}</code>
+          <div className={`mb-8 p-6 rounded-lg border-2 ${
+            visitorInfo.isNewVisitor
+              ? 'bg-blue-50 dark:bg-blue-950 border-blue-400'
+              : 'bg-green-50 dark:bg-green-950 border-green-400'
+          }`}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                {visitorInfo.isNewVisitor ? (
+                  <>
+                    <span className="text-2xl">👋</span>
+                    <span>New Visitor</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-2xl">🔄</span>
+                    <span>Welcome Back!</span>
+                  </>
+                )}
+              </h3>
+              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
+                visitorInfo.matchType === 'exact'
+                  ? 'bg-green-200 text-green-800'
+                  : visitorInfo.matchType === 'fuzzy'
+                  ? 'bg-yellow-200 text-yellow-800'
+                  : 'bg-blue-200 text-blue-800'
+              }`}>
+                {visitorInfo.matchType.toUpperCase()} MATCH
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+              <div className="bg-white dark:bg-gray-800 p-3 rounded-lg">
+                <div className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wide">Visitor ID</div>
+                <code className="text-xs font-mono break-all">{visitorInfo.visitorId?.slice(0, 8)}...</code>
               </div>
-              <div>
-                <span className="text-gray-600 dark:text-gray-400">Match Type:</span>
-                <br />
-                <span className={`font-semibold ${
-                  visitorInfo.matchType === 'exact' ? 'text-green-600' :
-                  visitorInfo.matchType === 'fuzzy' ? 'text-yellow-600' :
-                  'text-blue-600'
-                }`}>
-                  {visitorInfo.matchType}
-                </span>
+              <div className="bg-white dark:bg-gray-800 p-3 rounded-lg">
+                <div className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wide">Confidence</div>
+                <div className="text-lg font-bold">{(visitorInfo.confidence * 100).toFixed(1)}%</div>
               </div>
-              <div>
-                <span className="text-gray-600 dark:text-gray-400">Confidence:</span>
-                <br />
-                <span className="font-semibold">
-                  {(visitorInfo.confidence * 100).toFixed(1)}%
-                </span>
+              <div className="bg-white dark:bg-gray-800 p-3 rounded-lg">
+                <div className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wide">Visit Count</div>
+                <div className="text-lg font-bold">{visitorInfo.visitor?.visitCount || 1}</div>
+              </div>
+              <div className="bg-white dark:bg-gray-800 p-3 rounded-lg">
+                <div className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wide">Browser</div>
+                <div className="font-semibold">{visitorInfo.request?.browser || 'Unknown'}</div>
               </div>
             </div>
+
+            {visitorInfo.visitor && !visitorInfo.isNewVisitor && (
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">First Seen:</span>
+                    <div className="font-mono text-xs">
+                      {new Date(visitorInfo.visitor.firstSeen).toLocaleString()}
+                    </div>
+                  </div>
+                  {visitorInfo.visitor.lastVisit && (
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">Last Visit:</span>
+                      <div className="font-mono text-xs">
+                        {new Date(visitorInfo.visitor.lastVisit).toLocaleString()}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-gray-500 dark:text-gray-400">IP Address:</span>
+                    <div className="font-mono text-xs">{visitorInfo.request?.ipAddress || 'Unknown'}</div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

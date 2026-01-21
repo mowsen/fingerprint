@@ -5,6 +5,20 @@ import { matchFingerprint, updateStats } from '../services/matching';
 
 export const fingerprintRouter: RouterType = Router();
 
+// Simple browser parser from user agent
+function parseBrowser(userAgent?: string): string {
+  if (!userAgent) return 'Unknown';
+
+  if (userAgent.includes('Brave')) return 'Brave';
+  if (userAgent.includes('Edg/')) return 'Edge';
+  if (userAgent.includes('OPR/') || userAgent.includes('Opera')) return 'Opera';
+  if (userAgent.includes('Firefox/')) return 'Firefox';
+  if (userAgent.includes('Safari/') && !userAgent.includes('Chrome')) return 'Safari';
+  if (userAgent.includes('Chrome/')) return 'Chrome';
+
+  return 'Unknown';
+}
+
 // Validation schema for fingerprint submission
 const fingerprintSchema = z.object({
   fingerprint: z.string().length(64),
@@ -54,12 +68,45 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
     // Update statistics asynchronously
     updateStats(result.matchType, entropy).catch(console.error);
 
-    // Return result
+    // Get visitor history for repeat visitor info
+    const prisma = (await import('../index')).prisma;
+    const visitorData = await prisma.visitor.findUnique({
+      where: { id: result.visitorId },
+      include: {
+        sessions: {
+          orderBy: { firstSeen: 'desc' },
+          take: 10,
+        },
+        fingerprints: {
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        },
+      },
+    });
+
+    const sessionCount = visitorData?.sessions.length || 1;
+    const firstSeen = visitorData?.createdAt || new Date();
+
+    // Return result with visitor history
     return res.json({
       visitorId: result.visitorId,
       confidence: result.confidence,
       matchType: result.matchType,
       requestId: result.fingerprintId,
+      isNewVisitor: result.isNewVisitor,
+      // Visitor info
+      visitor: {
+        firstSeen: firstSeen.toISOString(),
+        visitCount: sessionCount,
+        lastVisit: visitorData?.sessions[1]?.firstSeen?.toISOString() || null,
+      },
+      // Current request info
+      request: {
+        timestamp: new Date().toISOString(),
+        ipAddress: ipAddress || 'unknown',
+        userAgent: userAgent || 'unknown',
+        browser: parseBrowser(userAgent),
+      },
     });
   } catch (error) {
     console.error('Error processing fingerprint:', error);
