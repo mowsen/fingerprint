@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import FingerprintDisplay from '@/components/FingerprintDisplay';
 
 export default function Home() {
@@ -60,8 +60,7 @@ export default function Home() {
           setVisitorInfo(data);
         }
       } catch {
-        // Server not available, that's fine
-        console.log('Server not available for identification');
+        // Server not available, that's fine - fingerprint still works locally
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to collect fingerprint');
