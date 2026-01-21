@@ -31,8 +31,8 @@ export default function Home() {
         'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
         'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
-      ];
-      const fp = new Fingerprint({ modules: stableModules, debug: false });
+      ] as const;
+      const fp = new Fingerprint({ modules: stableModules as unknown as string[], debug: false });
 
       // Two warm-up collections to fully stabilize browser APIs
       await fp.collect();
@@ -66,9 +66,9 @@ export default function Home() {
         'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
         'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
-      ];
+      ] as const;
       const fp = new Fingerprint({
-        modules: stableModules,
+        modules: stableModules as unknown as string[],
         debug: false,
       });
 
