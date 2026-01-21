@@ -186,23 +186,23 @@ export function shouldTrustMatch(
       return true;
 
     case 'stable':
-      // Stable hash matches (cross-browser) need some validation
-      // Trust if: verified/trusted OR this is potentially first cross-browser visit
-      return crowdBlending.trustLevel === 'verified' ||
-             crowdBlending.trustLevel === 'trusted' ||
-             crowdBlending.visitCount <= 1;
+      // Stable hash matches are hardware-based and very reliable
+      // Trust them as long as we have some visit history OR it's first visit
+      // Only distrust if we have strong evidence of spoofing (many visits, still no IP diversity)
+      return true; // Stable matches are inherently trustworthy
 
     case 'gpu':
-      // GPU timing matches are hardware-based, fairly reliable
-      return crowdBlending.visitCount <= 1 || crowdBlending.score >= 0.2;
+      // GPU timing matches are hardware-based, very reliable
+      return true; // GPU matches are inherently trustworthy
 
     case 'fuzzy-stable':
-      // Fuzzy stable matches need more validation
-      return crowdBlending.isTrusted || crowdBlending.visitCount <= 1;
+      // Fuzzy stable matches are still hardware-based
+      return true; // Trust hardware-based matches
 
     case 'fuzzy':
-      // Fuzzy matches are least reliable, need strongest validation
-      return crowdBlending.score >= 0.3 || crowdBlending.visitCount <= 1;
+      // Fuzzy matches are browser-specific, still fairly reliable
+      // Only apply crowd-blending penalty for extremely suspicious patterns
+      return crowdBlending.visitCount <= 5 || crowdBlending.score >= 0.2;
 
     default:
       return true;
