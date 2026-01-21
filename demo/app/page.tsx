@@ -32,7 +32,8 @@ export default function Home() {
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
         'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
       ] as const;
-      const fp = new Fingerprint({ modules: stableModules as unknown as string[], debug: false });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fp = new Fingerprint({ modules: stableModules as any, debug: false });
 
       // Two warm-up collections to fully stabilize browser APIs
       await fp.collect();
@@ -67,8 +68,9 @@ export default function Home() {
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
         'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
       ] as const;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fp = new Fingerprint({
-        modules: stableModules as unknown as string[],
+        modules: stableModules as any,
         debug: false,
       });
 
