@@ -87,6 +87,14 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
     const sessionCount = visitorData?.sessions.length || 1;
     const firstSeen = visitorData?.createdAt || new Date();
 
+    // Get recent visits for this visitor
+    const recentVisits = visitorData?.sessions.slice(0, 10).map(session => ({
+      timestamp: session.firstSeen.toISOString(),
+      ipAddress: session.ipAddress || 'unknown',
+      userAgent: session.userAgent || 'unknown',
+      browser: parseBrowser(session.userAgent || undefined),
+    })) || [];
+
     // Return result with visitor history
     return res.json({
       visitorId: result.visitorId,
@@ -107,6 +115,8 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
         userAgent: userAgent || 'unknown',
         browser: parseBrowser(userAgent),
       },
+      // Recent visit history
+      recentVisits,
     });
   } catch (error) {
     console.error('Error processing fingerprint:', error);

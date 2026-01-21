@@ -103,6 +103,19 @@ export default function Home() {
     }
   };
 
+  // Show loading spinner while collecting
+  if (isCollecting && !result) {
+    return (
+      <main className="min-h-screen p-8 flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-16 w-16 border-4 border-blue-600 border-t-transparent mb-4"></div>
+          <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300">Calculating Fingerprint...</h2>
+          <p className="text-gray-500 dark:text-gray-400 mt-2">Analyzing browser characteristics</p>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen p-8">
       <div className="max-w-6xl mx-auto">
@@ -119,9 +132,14 @@ export default function Home() {
             disabled={isCollecting}
             className="px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold
                        hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed
-                       transition-colors"
+                       transition-colors flex items-center gap-2"
           >
-            {isCollecting ? 'Collecting...' : 'Collect Fingerprint'}
+            {isCollecting ? (
+              <>
+                <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                Collecting...
+              </>
+            ) : 'Collect Fingerprint'}
           </button>
         </div>
 
@@ -202,6 +220,45 @@ export default function Home() {
                     <span className="text-gray-500 dark:text-gray-400">IP Address:</span>
                     <div className="font-mono text-xs">{visitorInfo.request?.ipAddress || 'Unknown'}</div>
                   </div>
+                </div>
+              </div>
+            )}
+
+            {/* Visit History Log */}
+            {visitorInfo.recentVisits && visitorInfo.recentVisits.length > 1 && (
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <h4 className="font-semibold mb-3 flex items-center gap-2">
+                  <span>📋</span> Visit History
+                </h4>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500 dark:text-gray-400 text-xs uppercase">
+                        <th className="pb-2 pr-4">#</th>
+                        <th className="pb-2 pr-4">Timestamp</th>
+                        <th className="pb-2 pr-4">Browser</th>
+                        <th className="pb-2">IP Address</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {visitorInfo.recentVisits.map((visit: { timestamp: string; browser: string; ipAddress: string }, index: number) => (
+                        <tr key={index} className={`border-t border-gray-100 dark:border-gray-700 ${index === 0 ? 'bg-green-50 dark:bg-green-900/20' : ''}`}>
+                          <td className="py-2 pr-4 font-mono text-xs">
+                            {index === 0 ? (
+                              <span className="text-green-600 font-semibold">NOW</span>
+                            ) : (
+                              visitorInfo.recentVisits.length - index
+                            )}
+                          </td>
+                          <td className="py-2 pr-4 font-mono text-xs">
+                            {new Date(visit.timestamp).toLocaleString()}
+                          </td>
+                          <td className="py-2 pr-4">{visit.browser}</td>
+                          <td className="py-2 font-mono text-xs">{visit.ipAddress}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
