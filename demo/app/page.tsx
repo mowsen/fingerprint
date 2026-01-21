@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import FingerprintDisplay from '@/components/FingerprintDisplay';
 
 export default function Home() {
@@ -13,6 +13,15 @@ export default function Home() {
     matchType: string;
     confidence: number;
   } | null>(null);
+  const hasCollected = useRef(false);
+
+  // Auto-collect on page load
+  useEffect(() => {
+    if (!hasCollected.current) {
+      hasCollected.current = true;
+      collectFingerprint();
+    }
+  }, []);
 
   const collectFingerprint = async () => {
     setIsCollecting(true);
