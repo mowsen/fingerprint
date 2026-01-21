@@ -1,0 +1,30 @@
+FROM node:20-slim
+
+# Install pnpm
+RUN npm install -g pnpm
+
+WORKDIR /app
+
+# Copy workspace config and package files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/client/package.json ./packages/client/
+COPY demo/package.json ./demo/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY packages/client ./packages/client
+COPY demo ./demo
+
+# Build client first
+RUN pnpm --filter @anthropic/fingerprint-client build
+
+# Build demo
+RUN pnpm --filter fingerprint-demo build
+
+WORKDIR /app/demo
+
+EXPOSE 3000
+
+CMD ["pnpm", "start"]

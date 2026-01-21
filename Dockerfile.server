@@ -1,0 +1,31 @@
+FROM node:20-slim
+
+# Install pnpm and OpenSSL for Prisma
+RUN npm install -g pnpm && \
+    apt-get update && apt-get install -y openssl && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy workspace config and package files
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY packages/client/package.json ./packages/client/
+COPY packages/server/package.json ./packages/server/
+
+# Install dependencies
+RUN pnpm install --frozen-lockfile
+
+# Copy source code
+COPY packages/client ./packages/client
+COPY packages/server ./packages/server
+
+# Build client first (server depends on it)
+RUN pnpm --filter @anthropic/fingerprint-client build
+
+# Generate Prisma client and build server
+RUN cd packages/server && pnpm db:generate && pnpm build
+
+WORKDIR /app/packages/server
+
+EXPOSE 3001
+
+CMD ["sh", "-c", "pnpm db:push && node dist/index.js"]
