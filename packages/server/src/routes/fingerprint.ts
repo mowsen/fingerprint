@@ -23,6 +23,8 @@ function parseBrowser(userAgent?: string): string {
 const fingerprintSchema = z.object({
   fingerprint: z.string().length(64),
   fuzzyHash: z.string().length(64),
+  stableHash: z.string().length(64).optional(),
+  gpuTimingHash: z.string().length(64).optional(),
   components: z.record(z.unknown()),
   entropy: z.number().optional(),
   timestamp: z.number().optional(),
@@ -44,7 +46,11 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const { fingerprint, fuzzyHash, components, entropy } = parsed.data;
+    const { fingerprint, fuzzyHash, stableHash, gpuTimingHash, components, entropy } = parsed.data;
+
+    // Extract farbling info from components if available
+    const resistanceData = components?.resistance as { data?: { isFarbled?: boolean } } | undefined;
+    const isFarbled = resistanceData?.data?.isFarbled || false;
 
     // Get client info from request
     const ipAddress =
@@ -58,8 +64,11 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
     const result = await matchFingerprint({
       fingerprint,
       fuzzyHash,
+      stableHash,
+      gpuTimingHash,
       components,
       entropy,
+      isFarbled,
       ipAddress,
       userAgent,
       referer,

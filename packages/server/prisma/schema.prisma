@@ -26,15 +26,20 @@ model Fingerprint {
   visitorId       String
   fingerprintHash String    @db.VarChar(64)
   fuzzyHash       String    @db.VarChar(64)
+  stableHash      String?   @db.VarChar(64)
+  gpuTimingHash   String?   @db.VarChar(64)
   components      Json
   rawData         Json?
   entropy         Float?
   confidence      Float?
+  isFarbled       Boolean   @default(false)
   createdAt       DateTime  @default(now())
   sessions        Session[]
 
   @@index([fingerprintHash])
   @@index([fuzzyHash])
+  @@index([stableHash])
+  @@index([gpuTimingHash])
   @@index([visitorId])
   @@map("fingerprints")
 }
@@ -65,6 +70,9 @@ model Stats {
   uniqueVisitors   Int      @default(0)
   totalFingerprints Int     @default(0)
   exactMatches     Int      @default(0)
+  stableMatches    Int      @default(0)
+  gpuMatches       Int      @default(0)
+  fuzzyStableMatches Int    @default(0)
   fuzzyMatches     Int      @default(0)
   newVisitors      Int      @default(0)
   avgEntropy       Float?

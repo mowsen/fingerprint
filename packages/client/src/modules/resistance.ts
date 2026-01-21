@@ -7,6 +7,54 @@ import type { ModuleResult, ResistanceData } from '../types';
 import { sha256 } from '../core/crypto';
 import { IS_BLINK, IS_GECKO, IS_WEBKIT, LIKE_BRAVE, isBraveBrowser } from '../core/helpers';
 
+// Farbling detection result
+export interface FarblingInfo {
+  isFarbled: boolean;
+  farblingLevel: 'off' | 'standard' | 'strict';
+}
+
+// Detect browser canvas farbling (Brave, etc.)
+export function detectCanvasFarbling(): FarblingInfo {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return { isFarbled: false, farblingLevel: 'off' };
+
+    canvas.width = 10;
+    canvas.height = 10;
+
+    // Draw same thing twice
+    ctx.fillStyle = 'rgb(255, 0, 0)';
+    ctx.fillRect(0, 0, 10, 10);
+    const data1 = canvas.toDataURL();
+
+    ctx.fillStyle = 'rgb(255, 0, 0)';
+    ctx.fillRect(0, 0, 10, 10);
+    const data2 = canvas.toDataURL();
+
+    // Clear and draw again
+    ctx.clearRect(0, 0, 10, 10);
+    ctx.fillStyle = 'rgb(255, 0, 0)';
+    ctx.fillRect(0, 0, 10, 10);
+    const data3 = canvas.toDataURL();
+
+    // If any differ, browser is farbling
+    if (data1 !== data2 || data2 !== data3) {
+      return { isFarbled: true, farblingLevel: 'strict' };
+    }
+
+    // Check for Brave shield (even without strict farbling)
+    // @ts-expect-error - brave property
+    if (navigator.brave) {
+      return { isFarbled: true, farblingLevel: 'standard' };
+    }
+
+    return { isFarbled: false, farblingLevel: 'off' };
+  } catch {
+    return { isFarbled: false, farblingLevel: 'off' };
+  }
+}
+
 // Detect Brave browser privacy features
 function detectBravePrivacy(): { detected: boolean; mode?: string } {
   if (!LIKE_BRAVE && !isBraveBrowser()) {
@@ -21,21 +69,9 @@ function detectBravePrivacy(): { detected: boolean; mode?: string } {
   }
 
   // Check for farbled values (Brave randomizes certain APIs)
-  try {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
-      ctx.fillText('test', 10, 10);
-      const data1 = canvas.toDataURL();
-      ctx.fillText('test', 10, 10);
-      const data2 = canvas.toDataURL();
-      // Brave farbles canvas, so consecutive reads may differ
-      if (data1 !== data2) {
-        return { detected: true, mode: 'strict' };
-      }
-    }
-  } catch {
-    // Ignore
+  const farblingInfo = detectCanvasFarbling();
+  if (farblingInfo.isFarbled) {
+    return { detected: true, mode: farblingInfo.farblingLevel };
   }
 
   return { detected: true, mode: 'standard' };
@@ -243,6 +279,7 @@ export async function collectResistance(): Promise<ModuleResult<ResistanceData>>
   const firefoxPrivacy = detectFirefoxPrivacy();
   const safariPrivacy = detectSafariPrivacy();
   const privacyTools = getPrivacyTools();
+  const farblingInfo = detectCanvasFarbling();
 
   // Determine primary privacy mode
   let privacy = '';
@@ -266,6 +303,8 @@ export async function collectResistance(): Promise<ModuleResult<ResistanceData>>
     extension: privacyTools.length > 0 ? privacyTools.join(', ') : undefined,
     extensionHashPattern: privacyTools.length > 0 ? privacyTools.sort().join(',') : undefined,
     engine: getEngine(),
+    isFarbled: farblingInfo.isFarbled,
+    farblingLevel: farblingInfo.farblingLevel,
   };
 
   const hash = await sha256(data);

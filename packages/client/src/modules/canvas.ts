@@ -189,12 +189,13 @@ function getPixelMods(): { rgba?: string; pixels?: number } | undefined {
     const pattern1: string[] = [];
     const pattern2: string[] = [];
 
-    // Fill canvas1 with random image data
+    // Fill canvas1 with deterministic colors based on position
+    // This ensures consistent results across page refreshes
     for (let x = 0; x < len; x++) {
       for (let y = 0; y < len; y++) {
-        const red = ~~(Math.random() * 256);
-        const green = ~~(Math.random() * 256);
-        const blue = ~~(Math.random() * 256);
+        const red = (x * 32) % 256;
+        const green = (y * 32) % 256;
+        const blue = ((x + y) * 16) % 256;
         const colors = `${red}, ${green}, ${blue}, ${alpha}`;
         context1.fillStyle = `rgba(${colors})`;
         context1.fillRect(x, y, 1, 1);

@@ -259,6 +259,60 @@ export function calculateSimilarity(hash1: string, hash2: string): number {
 }
 
 /**
+ * Cross-browser stable keys - features that are stable across different browsers on the same device
+ * These are primarily hardware and OS-level characteristics that don't vary between Chrome/Firefox/Safari
+ */
+const CROSS_BROWSER_STABLE_KEYS = [
+  // Hardware (very stable across browsers)
+  'navigator.hardwareConcurrency',
+  'navigator.deviceMemory',
+  'navigator.maxTouchPoints',
+  'screen.width',
+  'screen.height',
+  'screen.colorDepth',
+  'screen.pixelDepth',
+  'screen.availWidth',
+  'screen.availHeight',
+
+  // OS-level (stable across browsers)
+  'navigator.platform',
+  'navigator.language',
+  'timezone.zone',
+  'timezone.offset',
+
+  // WebGL hardware info (stable across browsers on same GPU)
+  'webgl.gpu',
+  'worker.webglRenderer',
+  'worker.webglVendor',
+
+  // Fonts (mostly stable across browsers)
+  'fonts.fontFaceLoadFonts',
+
+  // Worker scope (more reliable than main thread)
+  'worker.hardwareConcurrency',
+  'worker.deviceMemory',
+  'worker.platform',
+  'worker.language',
+];
+
+/**
+ * Generate a stable hash from browser-independent features
+ * This hash should be the same across Chrome, Firefox, Safari on the same device
+ */
+export async function generateStableHash(components: ComponentResults): Promise<string> {
+  const stableValues: unknown[] = [];
+
+  for (const key of CROSS_BROWSER_STABLE_KEYS) {
+    const [section, prop] = key.split('.');
+    const sectionData = components[section as keyof ComponentResults];
+    const value = sectionData?.data?.[prop as keyof typeof sectionData.data];
+    stableValues.push(value ?? null);
+  }
+
+  return sha256(stableValues);
+}
+
+/**
  * Generate the final combined fingerprint hash
  */
 export async function generateFingerprint(components: ComponentResults): Promise<string> {

@@ -11,7 +11,7 @@ import type {
   DetectionResult,
   IdentifyResponse,
 } from '../types';
-import { sha256, generateFuzzyHash, generateFingerprint } from './crypto';
+import { sha256, generateFuzzyHash, generateFingerprint, generateStableHash } from './crypto';
 import { createTimer, createPerformanceLogger, calculateEntropyBits } from './helpers';
 
 // Module imports
@@ -37,6 +37,7 @@ import { collectLies, getLieCount } from '../modules/lies';
 import { collectResistance } from '../modules/resistance';
 import { collectWorker } from '../modules/worker';
 import { collectErrors } from '../modules/errors';
+import { collectGpuTiming } from '../modules/gpu-timing';
 
 // All available module names
 const ALL_MODULES: ModuleName[] = [
@@ -62,6 +63,7 @@ const ALL_MODULES: ModuleName[] = [
   'resistance',
   'worker',
   'errors',
+  'gpuTiming',
 ];
 
 // Module collectors map
@@ -88,6 +90,7 @@ const MODULE_COLLECTORS: Record<ModuleName, () => Promise<ModuleResult<unknown>>
   resistance: collectResistance,
   worker: collectWorker,
   errors: collectErrors,
+  gpuTiming: collectGpuTiming,
 };
 
 // Entropy estimates for each module (in bits)
@@ -114,6 +117,7 @@ const MODULE_ENTROPY: Record<ModuleName, number> = {
   resistance: 2.0,
   worker: 5.0,
   errors: 1.0,
+  gpuTiming: 8.0,
 };
 
 /**
@@ -167,7 +171,7 @@ async function collectModule(
 /**
  * Calculate detection results from collected components
  */
-function calculateDetection(components: ComponentResults): DetectionResult {
+function calculateDetection(components: ComponentResults): DetectionResult & { isFarbled?: boolean; farblingLevel?: string } {
   const headlessData = components.headless?.data;
   const liesData = components.lies?.data;
   const resistanceData = components.resistance?.data;
@@ -189,11 +193,17 @@ function calculateDetection(components: ComponentResults): DetectionResult {
   if (liesDetected > 0) confidence -= Math.min(0.3, liesDetected * 0.05);
   if (privacyTools.length > 0) confidence -= 0.1;
 
+  // Extract farbling info from resistance data
+  const isFarbled = resistanceData?.isFarbled;
+  const farblingLevel = resistanceData?.farblingLevel;
+
   return {
     isHeadless,
     liesDetected,
     privacyTools,
     confidence: Math.max(0, confidence),
+    isFarbled,
+    farblingLevel,
   };
 }
 
@@ -258,11 +268,15 @@ export class Fingerprint {
       (components as Record<string, ModuleResult<unknown>>)[name] = result;
     }
 
-    // Generate hashes
-    const [fingerprint, fuzzyHash] = await Promise.all([
+    // Generate hashes (fingerprint, fuzzyHash, and cross-browser stableHash)
+    const [fingerprint, fuzzyHash, stableHash] = await Promise.all([
       generateFingerprint(components),
       generateFuzzyHash(components),
+      generateStableHash(components),
     ]);
+
+    // Get GPU timing hash if available
+    const gpuTimingHash = components.gpuTiming?.hash || undefined;
 
     // Calculate detection and entropy
     const detection = calculateDetection(components);
@@ -274,6 +288,8 @@ export class Fingerprint {
     return {
       fingerprint,
       fuzzyHash,
+      stableHash,
+      gpuTimingHash,
       components,
       detection,
       entropy,
@@ -296,6 +312,8 @@ export class Fingerprint {
       body: JSON.stringify({
         fingerprint: result.fingerprint,
         fuzzyHash: result.fuzzyHash,
+        stableHash: result.stableHash,
+        gpuTimingHash: result.gpuTimingHash,
         components: result.components,
         entropy: result.entropy,
         timestamp: result.timestamp,

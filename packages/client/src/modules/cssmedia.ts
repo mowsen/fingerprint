@@ -110,7 +110,7 @@ function getCSSMediaResults(): Record<string, boolean> {
 
   try {
     const style = document.createElement('style');
-    const testId = 'fp-media-test-' + Math.random().toString(36).slice(2);
+    const testId = 'fp-media-test-element';
     const element = document.createElement('div');
     element.id = testId;
     element.style.cssText = 'position: absolute; left: -9999px;';

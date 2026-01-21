@@ -25,7 +25,8 @@ export type ModuleName =
   | 'lies'
   | 'resistance'
   | 'worker'
-  | 'errors';
+  | 'errors'
+  | 'gpuTiming';
 
 // Configuration options
 export interface FingerprintConfig {
@@ -303,6 +304,16 @@ export interface ResistanceData {
   extension?: string;
   extensionHashPattern?: string;
   engine?: string;
+  isFarbled?: boolean;
+  farblingLevel?: 'off' | 'standard' | 'strict';
+}
+
+// GPU Timing module data (DRAWNAPART)
+export interface GpuTimingData {
+  timings: number[];
+  pattern: string;
+  gpuScore: number;
+  supported: boolean;
 }
 
 // Worker module data
@@ -371,14 +382,20 @@ export interface ComponentResults {
   resistance?: ModuleResult<ResistanceData>;
   worker?: ModuleResult<WorkerData>;
   errors?: ModuleResult<ErrorsData>;
+  gpuTiming?: ModuleResult<GpuTimingData>;
 }
 
 // Main fingerprint result
 export interface FingerprintResult {
   fingerprint: string;
   fuzzyHash: string;
+  stableHash: string;
+  gpuTimingHash?: string;
   components: ComponentResults;
-  detection: DetectionResult;
+  detection: DetectionResult & {
+    isFarbled?: boolean;
+    farblingLevel?: string;
+  };
   entropy: number;
   timestamp: number;
   duration: number;
@@ -388,7 +405,7 @@ export interface FingerprintResult {
 export interface IdentifyResponse {
   visitorId: string;
   confidence: number;
-  matchType: 'exact' | 'fuzzy' | 'new';
+  matchType: 'exact' | 'stable' | 'gpu' | 'fuzzy-stable' | 'fuzzy' | 'new';
   requestId?: string;
 }
 

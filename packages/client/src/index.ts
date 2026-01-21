@@ -42,6 +42,7 @@ export type {
   ResistanceData,
   WorkerData,
   ErrorsData,
+  GpuTimingData,
 
   // Utility types
   EngineInfo,
@@ -57,6 +58,7 @@ export {
   hashMini,
   generateFuzzyHash,
   generateFingerprint,
+  generateStableHash,
   hammingDistance,
   calculateSimilarity,
 } from './core/crypto';
@@ -97,9 +99,10 @@ export { collectMedia } from './modules/media';
 export { collectWindow } from './modules/window';
 export { collectHeadless } from './modules/headless';
 export { collectLies, getLieCount } from './modules/lies';
-export { collectResistance } from './modules/resistance';
+export { collectResistance, detectCanvasFarbling } from './modules/resistance';
 export { collectWorker } from './modules/worker';
 export { collectErrors } from './modules/errors';
+export { collectGpuTiming } from './modules/gpu-timing';
 
 // Default export
 import { Fingerprint } from './core/orchestrator';

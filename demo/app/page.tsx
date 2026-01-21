@@ -27,7 +27,7 @@ export default function Home() {
       const stableModules = [
         'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
-        'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
+        'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming'
       ] as const;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fp = new Fingerprint({ modules: stableModules as any, debug: false });
@@ -63,7 +63,7 @@ export default function Home() {
       const stableModules = [
         'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
-        'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
+        'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming'
       ] as const;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fp = new Fingerprint({
@@ -84,6 +84,8 @@ export default function Home() {
           body: JSON.stringify({
             fingerprint: fingerprintResult.fingerprint,
             fuzzyHash: fingerprintResult.fuzzyHash,
+            stableHash: fingerprintResult.stableHash,
+            gpuTimingHash: fingerprintResult.gpuTimingHash,
             components: fingerprintResult.components,
             entropy: fingerprintResult.entropy,
           }),
@@ -172,11 +174,20 @@ export default function Home() {
               <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
                 visitorInfo.matchType === 'exact'
                   ? 'bg-green-200 text-green-800'
+                  : visitorInfo.matchType === 'stable'
+                  ? 'bg-purple-200 text-purple-800'
+                  : visitorInfo.matchType === 'gpu'
+                  ? 'bg-indigo-200 text-indigo-800'
+                  : visitorInfo.matchType === 'fuzzy-stable'
+                  ? 'bg-teal-200 text-teal-800'
                   : visitorInfo.matchType === 'fuzzy'
                   ? 'bg-yellow-200 text-yellow-800'
                   : 'bg-blue-200 text-blue-800'
               }`}>
-                {visitorInfo.matchType.toUpperCase()} MATCH
+                {visitorInfo.matchType === 'stable' ? 'CROSS-BROWSER' :
+                 visitorInfo.matchType === 'gpu' ? 'GPU TIMING' :
+                 visitorInfo.matchType === 'fuzzy-stable' ? 'FUZZY STABLE' :
+                 visitorInfo.matchType.toUpperCase()} MATCH
               </span>
             </div>
 
