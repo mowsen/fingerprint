@@ -306,6 +306,13 @@ export interface ResistanceData {
   engine?: string;
   isFarbled?: boolean;
   farblingLevel?: 'off' | 'standard' | 'strict';
+  // CreepJS-inspired detection
+  timerPrecisionReduced?: boolean;
+  timerPrecision?: number;
+  hasPhantomLies?: boolean;
+  phantomSignature?: string;
+  hasCrossScopeLies?: boolean;
+  crossScopeInconsistencies?: string[];
 }
 
 // GPU Timing module data (DRAWNAPART)

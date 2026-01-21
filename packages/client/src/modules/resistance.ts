@@ -1,11 +1,133 @@
 /**
  * Privacy Tool Resistance Detection Module
  * Detects anti-fingerprinting tools and privacy extensions
+ * Inspired by CreepJS techniques for lie detection and phantom iframe testing
  */
 
 import type { ModuleResult, ResistanceData } from '../types';
 import { sha256 } from '../core/crypto';
 import { IS_BLINK, IS_GECKO, IS_WEBKIT, LIKE_BRAVE, isBraveBrowser } from '../core/helpers';
+
+// Timer precision detection for Firefox resistFingerprinting
+async function detectTimerPrecision(): Promise<{ reduced: boolean; precision: number }> {
+  try {
+    const samples: number[] = [];
+    const baseDate = Date.now();
+
+    // Collect 10 samples with small delays
+    for (let i = 0; i < 10; i++) {
+      await new Promise((resolve) => setTimeout(resolve, i));
+      samples.push(Date.now() - baseDate);
+    }
+
+    // Check if all samples end with same digit (indicates reduced precision)
+    const lastDigits = samples.map((s) => s % 10);
+    const allSame = lastDigits.every((d) => d === lastDigits[0]);
+
+    // Calculate precision
+    const uniqueValues = new Set(samples);
+    const precision = uniqueValues.size === 1 ? 100 : Math.round(100 / uniqueValues.size);
+
+    return { reduced: allSame && samples.length > 5, precision };
+  } catch {
+    return { reduced: false, precision: 1 };
+  }
+}
+
+// Phantom iframe technique - detect API hooks by comparing contexts
+function detectPhantomLies(): { hasPhantomLies: boolean; phantomSignature: string } {
+  try {
+    // Create a hidden "phantom" iframe
+    const div = document.createElement('div');
+    div.style.cssText = 'position:absolute;left:-10000px;visibility:hidden;';
+    div.innerHTML = '<iframe></iframe>';
+    document.body.appendChild(div);
+
+    const iframe = div.querySelector('iframe');
+    if (!iframe || !iframe.contentWindow) {
+      document.body.removeChild(div);
+      return { hasPhantomLies: false, phantomSignature: '' };
+    }
+
+    const phantomWindow = iframe.contentWindow;
+    const signatures: string[] = [];
+
+    // Compare navigator properties between main and phantom
+    const mainNav = window.navigator;
+    const phantomNav = phantomWindow.navigator;
+
+    // Check for inconsistencies (extensions often hook main but not iframe)
+    const checks = [
+      ['userAgent', mainNav.userAgent === phantomNav.userAgent],
+      ['platform', mainNav.platform === phantomNav.platform],
+      ['hardwareConcurrency', mainNav.hardwareConcurrency === phantomNav.hardwareConcurrency],
+      ['deviceMemory', (mainNav as Navigator & { deviceMemory?: number }).deviceMemory ===
+        (phantomNav as Navigator & { deviceMemory?: number }).deviceMemory],
+    ];
+
+    for (const [name, matches] of checks) {
+      if (!matches) {
+        signatures.push(name);
+      }
+    }
+
+    // Check Function.toString for proxy detection
+    try {
+      const mainToString = Function.prototype.toString.call(mainNav.userAgent.constructor);
+      const phantomToString = Function.prototype.toString.call(phantomNav.userAgent.constructor);
+      if (mainToString !== phantomToString) {
+        signatures.push('toString');
+      }
+    } catch {
+      signatures.push('toStringError');
+    }
+
+    // Cleanup
+    document.body.removeChild(div);
+
+    return {
+      hasPhantomLies: signatures.length > 0,
+      phantomSignature: signatures.sort().join(','),
+    };
+  } catch {
+    return { hasPhantomLies: false, phantomSignature: 'error' };
+  }
+}
+
+// Detect cross-scope inconsistencies (main thread vs what we collected in worker)
+function detectCrossScopeLies(workerData?: {
+  hardwareConcurrency?: number;
+  deviceMemory?: number;
+  platform?: string;
+}): { hasCrossScopeLies: boolean; inconsistencies: string[] } {
+  const inconsistencies: string[] = [];
+
+  if (!workerData) {
+    return { hasCrossScopeLies: false, inconsistencies: [] };
+  }
+
+  // Compare main thread vs worker scope
+  if (workerData.hardwareConcurrency !== undefined &&
+      navigator.hardwareConcurrency !== workerData.hardwareConcurrency) {
+    inconsistencies.push('hardwareConcurrency');
+  }
+
+  const navWithMemory = navigator as Navigator & { deviceMemory?: number };
+  if (workerData.deviceMemory !== undefined &&
+      navWithMemory.deviceMemory !== workerData.deviceMemory) {
+    inconsistencies.push('deviceMemory');
+  }
+
+  if (workerData.platform !== undefined &&
+      navigator.platform !== workerData.platform) {
+    inconsistencies.push('platform');
+  }
+
+  return {
+    hasCrossScopeLies: inconsistencies.length > 0,
+    inconsistencies,
+  };
+}
 
 // Farbling detection result
 export interface FarblingInfo {
@@ -281,6 +403,10 @@ export async function collectResistance(): Promise<ModuleResult<ResistanceData>>
   const privacyTools = getPrivacyTools();
   const farblingInfo = detectCanvasFarbling();
 
+  // CreepJS-inspired detection
+  const timerPrecision = await detectTimerPrecision();
+  const phantomLies = detectPhantomLies();
+
   // Determine primary privacy mode
   let privacy = '';
   let mode = '';
@@ -296,6 +422,12 @@ export async function collectResistance(): Promise<ModuleResult<ResistanceData>>
     mode = safariPrivacy.mode || '';
   }
 
+  // Detect Firefox resistFingerprinting via timer precision
+  if (IS_GECKO && timerPrecision.reduced && !privacy) {
+    privacy = 'Firefox Privacy';
+    mode = 'resistFingerprinting';
+  }
+
   const data: ResistanceData = {
     privacy: privacy || undefined,
     security: privacyTools.length > 0 ? 'extensions detected' : undefined,
@@ -305,6 +437,11 @@ export async function collectResistance(): Promise<ModuleResult<ResistanceData>>
     engine: getEngine(),
     isFarbled: farblingInfo.isFarbled,
     farblingLevel: farblingInfo.farblingLevel,
+    // CreepJS-inspired detection results
+    timerPrecisionReduced: timerPrecision.reduced,
+    timerPrecision: timerPrecision.precision,
+    hasPhantomLies: phantomLies.hasPhantomLies,
+    phantomSignature: phantomLies.phantomSignature || undefined,
   };
 
   const hash = await sha256(data);

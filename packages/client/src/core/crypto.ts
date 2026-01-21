@@ -175,6 +175,12 @@ const FUZZY_METRIC_KEYS = [
   'resistance.mode',
   'resistance.privacy',
   'resistance.security',
+  'resistance.isFarbled',
+  'resistance.farblingLevel',
+  'resistance.timerPrecisionReduced',
+  'resistance.timerPrecision',
+  'resistance.hasPhantomLies',
+  'resistance.phantomSignature',
   // Worker
   'worker.device',
   'worker.deviceMemory',
@@ -261,38 +267,48 @@ export function calculateSimilarity(hash1: string, hash2: string): number {
 /**
  * Cross-browser stable keys - features that are stable across different browsers on the same device
  * These are primarily hardware and OS-level characteristics that don't vary between Chrome/Firefox/Safari
+ * Based on CreepJS research - these are stable even in incognito mode
  */
 const CROSS_BROWSER_STABLE_KEYS = [
-  // Hardware (very stable across browsers)
+  // Hardware (very stable across browsers AND incognito)
   'navigator.hardwareConcurrency',
   'navigator.deviceMemory',
   'navigator.maxTouchPoints',
-  'screen.width',
-  'screen.height',
+
+  // Screen - only if not privacy-spoofed (checked separately)
   'screen.colorDepth',
   'screen.pixelDepth',
-  'screen.availWidth',
-  'screen.availHeight',
-
-  // OS-level (stable across browsers)
-  'navigator.platform',
-  'navigator.language',
-  'timezone.zone',
-  'timezone.offset',
 
   // WebGL hardware info (stable across browsers on same GPU)
   'webgl.gpu',
+  'webgl.parameters',
   'worker.webglRenderer',
   'worker.webglVendor',
 
-  // Fonts (mostly stable across browsers)
-  'fonts.fontFaceLoadFonts',
+  // Audio fingerprint - HARDWARE BASED, stable in incognito!
+  'audio.sampleSum',
+  'audio.compressorGainReduction',
+  'audio.values',
 
-  // Worker scope (more reliable than main thread)
+  // Canvas rendering - hardware-based, stable in incognito
+  'canvas.textMetricsSystemSum',
+
+  // Math constants - engine-specific but stable
+  'math.data',
+
+  // Worker scope (more reliable than main thread, harder to spoof)
   'worker.hardwareConcurrency',
   'worker.deviceMemory',
   'worker.platform',
-  'worker.language',
+  'worker.webglRenderer',
+  'worker.webglVendor',
+
+  // Lies detection - the PATTERN of lies is a fingerprint!
+  // (CreepJS insight: privacy tools create unique signatures)
+  'lies.totalLies',
+  'resistance.engine',
+  'resistance.phantomSignature',
+  'resistance.timerPrecision',
 ];
 
 /**
