@@ -1,0 +1,330 @@
+/**
+ * Orchestrator - Coordinates parallel fingerprint collection from all modules
+ */
+
+import type {
+  FingerprintConfig,
+  FingerprintResult,
+  ComponentResults,
+  ModuleName,
+  ModuleResult,
+  DetectionResult,
+  IdentifyResponse,
+} from '../types';
+import { sha256, generateFuzzyHash, generateFingerprint } from './crypto';
+import { createTimer, createPerformanceLogger, calculateEntropyBits } from './helpers';
+
+// Module imports
+import { collectCanvas } from '../modules/canvas';
+import { collectWebGL } from '../modules/webgl';
+import { collectAudio } from '../modules/audio';
+import { collectNavigator } from '../modules/navigator';
+import { collectScreen } from '../modules/screen';
+import { collectFonts } from '../modules/fonts';
+import { collectTimezone } from '../modules/timezone';
+import { collectMath } from '../modules/math';
+import { collectDOMRect } from '../modules/domrect';
+import { collectIntl } from '../modules/intl';
+import { collectWebRTC } from '../modules/webrtc';
+import { collectSVG } from '../modules/svg';
+import { collectSpeech } from '../modules/speech';
+import { collectCSS } from '../modules/css';
+import { collectCSSMedia } from '../modules/cssmedia';
+import { collectMedia } from '../modules/media';
+import { collectWindow } from '../modules/window';
+import { collectHeadless } from '../modules/headless';
+import { collectLies, getLieCount } from '../modules/lies';
+import { collectResistance } from '../modules/resistance';
+import { collectWorker } from '../modules/worker';
+import { collectErrors } from '../modules/errors';
+
+// All available module names
+const ALL_MODULES: ModuleName[] = [
+  'canvas',
+  'webgl',
+  'audio',
+  'navigator',
+  'screen',
+  'fonts',
+  'timezone',
+  'math',
+  'domrect',
+  'intl',
+  'webrtc',
+  'svg',
+  'speech',
+  'css',
+  'cssmedia',
+  'media',
+  'window',
+  'headless',
+  'lies',
+  'resistance',
+  'worker',
+  'errors',
+];
+
+// Module collectors map
+const MODULE_COLLECTORS: Record<ModuleName, () => Promise<ModuleResult<unknown>>> = {
+  canvas: collectCanvas,
+  webgl: collectWebGL,
+  audio: collectAudio,
+  navigator: collectNavigator,
+  screen: collectScreen,
+  fonts: collectFonts,
+  timezone: collectTimezone,
+  math: collectMath,
+  domrect: collectDOMRect,
+  intl: collectIntl,
+  webrtc: collectWebRTC,
+  svg: collectSVG,
+  speech: collectSpeech,
+  css: collectCSS,
+  cssmedia: collectCSSMedia,
+  media: collectMedia,
+  window: collectWindow,
+  headless: collectHeadless,
+  lies: collectLies,
+  resistance: collectResistance,
+  worker: collectWorker,
+  errors: collectErrors,
+};
+
+// Entropy estimates for each module (in bits)
+const MODULE_ENTROPY: Record<ModuleName, number> = {
+  canvas: 12.5,
+  webgl: 15.0,
+  audio: 8.5,
+  navigator: 6.0,
+  screen: 4.5,
+  fonts: 10.0,
+  timezone: 3.0,
+  math: 4.0,
+  domrect: 5.0,
+  intl: 4.0,
+  webrtc: 3.5,
+  svg: 5.5,
+  speech: 4.0,
+  css: 3.0,
+  cssmedia: 3.5,
+  media: 2.5,
+  window: 2.0,
+  headless: 1.0,
+  lies: 1.5,
+  resistance: 2.0,
+  worker: 5.0,
+  errors: 1.0,
+};
+
+/**
+ * Collect a single module's fingerprint with timing and error handling
+ */
+async function collectModule(
+  name: ModuleName,
+  timeout: number,
+  debug: boolean
+): Promise<{ name: ModuleName; result: ModuleResult<unknown> }> {
+  const timer = createTimer();
+  const logger = createPerformanceLogger(debug);
+
+  try {
+    const collector = MODULE_COLLECTORS[name];
+
+    // Create timeout promise
+    const timeoutPromise = new Promise<ModuleResult<unknown>>((_, reject) => {
+      setTimeout(() => reject(new Error(`Module ${name} timed out`)), timeout);
+    });
+
+    // Race between collection and timeout
+    const result = await Promise.race([collector(), timeoutPromise]);
+    const duration = timer.stop();
+
+    logger.log(`${name} collected`, duration);
+
+    return {
+      name,
+      result: {
+        ...result,
+        duration,
+      },
+    };
+  } catch (error) {
+    const duration = timer.stop();
+    logger.log(`${name} failed: ${error}`, duration);
+
+    return {
+      name,
+      result: {
+        hash: '',
+        data: null,
+        duration,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    };
+  }
+}
+
+/**
+ * Calculate detection results from collected components
+ */
+function calculateDetection(components: ComponentResults): DetectionResult {
+  const headlessData = components.headless?.data;
+  const liesData = components.lies?.data;
+  const resistanceData = components.resistance?.data;
+
+  const isHeadless = Boolean(headlessData?.headless || headlessData?.likeHeadless);
+  const liesDetected = getLieCount();
+
+  const privacyTools: string[] = [];
+  if (resistanceData?.privacy) {
+    privacyTools.push(resistanceData.privacy);
+  }
+  if (resistanceData?.extension) {
+    privacyTools.push(resistanceData.extension);
+  }
+
+  // Calculate confidence based on detection signals
+  let confidence = 1.0;
+  if (isHeadless) confidence -= 0.3;
+  if (liesDetected > 0) confidence -= Math.min(0.3, liesDetected * 0.05);
+  if (privacyTools.length > 0) confidence -= 0.1;
+
+  return {
+    isHeadless,
+    liesDetected,
+    privacyTools,
+    confidence: Math.max(0, confidence),
+  };
+}
+
+/**
+ * Calculate total entropy from collected components
+ */
+function calculateTotalEntropy(
+  components: ComponentResults,
+  enabledModules: ModuleName[]
+): number {
+  let totalEntropy = 0;
+
+  for (const name of enabledModules) {
+    const component = components[name as keyof ComponentResults];
+    if (component && !component.error && component.data) {
+      totalEntropy += MODULE_ENTROPY[name] || 0;
+    }
+  }
+
+  return Math.round(totalEntropy * 10) / 10;
+}
+
+/**
+ * Main Fingerprint class
+ */
+export class Fingerprint {
+  private config: Required<FingerprintConfig>;
+  private enabledModules: ModuleName[];
+
+  constructor(config: FingerprintConfig = {}) {
+    this.config = {
+      modules: config.modules || 'all',
+      timeout: config.timeout || 10000,
+      debug: config.debug || false,
+    };
+
+    this.enabledModules =
+      this.config.modules === 'all'
+        ? ALL_MODULES
+        : this.config.modules;
+  }
+
+  /**
+   * Collect fingerprint from all enabled modules
+   */
+  async collect(): Promise<FingerprintResult> {
+    const timer = createTimer();
+    const logger = createPerformanceLogger(this.config.debug);
+
+    logger.log('Starting fingerprint collection');
+
+    // Collect all modules in parallel
+    const modulePromises = this.enabledModules.map((name) =>
+      collectModule(name, this.config.timeout, this.config.debug)
+    );
+
+    const results = await Promise.all(modulePromises);
+
+    // Assemble components
+    const components: ComponentResults = {};
+    for (const { name, result } of results) {
+      (components as Record<string, ModuleResult<unknown>>)[name] = result;
+    }
+
+    // Generate hashes
+    const [fingerprint, fuzzyHash] = await Promise.all([
+      generateFingerprint(components),
+      generateFuzzyHash(components),
+    ]);
+
+    // Calculate detection and entropy
+    const detection = calculateDetection(components);
+    const entropy = calculateTotalEntropy(components, this.enabledModules);
+
+    const duration = timer.stop();
+    logger.log('Fingerprint collection complete', duration);
+
+    return {
+      fingerprint,
+      fuzzyHash,
+      components,
+      detection,
+      entropy,
+      timestamp: Date.now(),
+      duration,
+    };
+  }
+
+  /**
+   * Collect fingerprint and send to server for identification
+   */
+  async identify(serverUrl: string): Promise<IdentifyResponse> {
+    const result = await this.collect();
+
+    const response = await fetch(serverUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        fingerprint: result.fingerprint,
+        fuzzyHash: result.fuzzyHash,
+        components: result.components,
+        entropy: result.entropy,
+        timestamp: result.timestamp,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Server responded with ${response.status}`);
+    }
+
+    return response.json();
+  }
+
+  /**
+   * Get list of enabled modules
+   */
+  getEnabledModules(): ModuleName[] {
+    return [...this.enabledModules];
+  }
+
+  /**
+   * Check if a specific module is enabled
+   */
+  isModuleEnabled(name: ModuleName): boolean {
+    return this.enabledModules.includes(name);
+  }
+}
+
+// Export orchestrator factory
+export function createFingerprint(config?: FingerprintConfig): Fingerprint {
+  return new Fingerprint(config);
+}

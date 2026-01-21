@@ -1,0 +1,338 @@
+/**
+ * Cryptographic utilities for fingerprint hashing
+ */
+
+import type { ComponentResults } from '../types';
+import { getNestedValue, safeStringify } from './helpers';
+
+/**
+ * Fast mini hash (non-cryptographic) for quick comparisons
+ * Based on FNV-1a hash
+ */
+export function hashMini(data: unknown): string {
+  const json = safeStringify(data);
+  let hash = 0x811c9dc5;
+
+  for (let i = 0; i < json.length; i++) {
+    hash = Math.imul(31, hash) + json.charCodeAt(i) | 0;
+  }
+
+  return ('0000000' + (hash >>> 0).toString(16)).slice(-8);
+}
+
+/**
+ * SHA-256 hash using Web Crypto API
+ */
+export async function sha256(data: unknown): Promise<string> {
+  const json = safeStringify(data);
+  const encoder = new TextEncoder();
+  const dataBuffer = encoder.encode(json);
+
+  const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => ('00' + b.toString(16)).slice(-2)).join('');
+
+  return hashHex;
+}
+
+/**
+ * Alias for sha256 for compatibility
+ */
+export const hashify = sha256;
+
+/**
+ * Metric keys used for fuzzy hashing
+ * These are ordered and grouped to create stable bins
+ */
+const FUZZY_METRIC_KEYS = [
+  // Canvas
+  'canvas.dataURI',
+  'canvas.emojiSet',
+  'canvas.emojiURI',
+  'canvas.mods',
+  'canvas.textMetricsSystemSum',
+  'canvas.textURI',
+  // WebGL
+  'webgl.dataURI',
+  'webgl.dataURI2',
+  'webgl.extensions',
+  'webgl.gpu',
+  'webgl.parameters',
+  'webgl.pixels',
+  'webgl.pixels2',
+  // Audio
+  'audio.compressorGainReduction',
+  'audio.floatFrequencyDataSum',
+  'audio.floatTimeDomainDataSum',
+  'audio.noise',
+  'audio.sampleSum',
+  'audio.totalUniqueSamples',
+  'audio.values',
+  // Navigator
+  'navigator.appVersion',
+  'navigator.device',
+  'navigator.deviceMemory',
+  'navigator.doNotTrack',
+  'navigator.globalPrivacyControl',
+  'navigator.hardwareConcurrency',
+  'navigator.language',
+  'navigator.maxTouchPoints',
+  'navigator.mimeTypes',
+  'navigator.oscpu',
+  'navigator.permissions',
+  'navigator.platform',
+  'navigator.plugins',
+  'navigator.system',
+  'navigator.userAgent',
+  'navigator.userAgentData',
+  'navigator.vendor',
+  'navigator.webgpu',
+  // Screen
+  'screen.availHeight',
+  'screen.availWidth',
+  'screen.colorDepth',
+  'screen.height',
+  'screen.pixelDepth',
+  'screen.touch',
+  'screen.width',
+  // Fonts
+  'fonts.apps',
+  'fonts.emojiSet',
+  'fonts.fontFaceLoadFonts',
+  'fonts.pixelSizeSystemSum',
+  'fonts.platformVersion',
+  // Timezone
+  'timezone.location',
+  'timezone.locationEpoch',
+  'timezone.locationMeasured',
+  'timezone.offset',
+  'timezone.offsetComputed',
+  'timezone.zone',
+  // Math
+  'math.data',
+  // DOMRect
+  'domrect.domrectSystemSum',
+  'domrect.elementBoundingClientRect',
+  'domrect.elementClientRects',
+  'domrect.emojiSet',
+  'domrect.rangeBoundingClientRect',
+  'domrect.rangeClientRects',
+  // Intl
+  'intl.dateTimeFormat',
+  'intl.displayNames',
+  'intl.listFormat',
+  'intl.locale',
+  'intl.numberFormat',
+  'intl.pluralRules',
+  'intl.relativeTimeFormat',
+  // CSS
+  'css.computedStyle',
+  'css.system',
+  // CSS Media
+  'cssmedia.matchMediaCSS',
+  'cssmedia.mediaCSS',
+  'cssmedia.screenQuery',
+  // Media
+  'media.mimeTypes',
+  // Window
+  'window.apple',
+  'window.keys',
+  'window.moz',
+  'window.webkit',
+  // SVG
+  'svg.bBox',
+  'svg.computedTextLength',
+  'svg.emojiSet',
+  'svg.extentOfChar',
+  'svg.subStringLength',
+  'svg.svgrectSystemSum',
+  // Speech
+  'speech.defaultVoiceLang',
+  'speech.defaultVoiceName',
+  'speech.languages',
+  'speech.local',
+  'speech.remote',
+  // WebRTC
+  'webrtc.audio',
+  'webrtc.video',
+  // Headless
+  'headless.chromium',
+  'headless.headless',
+  'headless.headlessRating',
+  'headless.likeHeadless',
+  'headless.likeHeadlessRating',
+  'headless.platformEstimate',
+  'headless.stealth',
+  'headless.stealthRating',
+  'headless.systemFonts',
+  // Lies
+  'lies.data',
+  'lies.totalLies',
+  // Resistance
+  'resistance.engine',
+  'resistance.extension',
+  'resistance.extensionHashPattern',
+  'resistance.mode',
+  'resistance.privacy',
+  'resistance.security',
+  // Worker
+  'worker.device',
+  'worker.deviceMemory',
+  'worker.gpu',
+  'worker.hardwareConcurrency',
+  'worker.language',
+  'worker.languages',
+  'worker.locale',
+  'worker.platform',
+  'worker.system',
+  'worker.timezoneLocation',
+  'worker.timezoneOffset',
+  'worker.userAgent',
+  'worker.userAgentData',
+  'worker.webglRenderer',
+  'worker.webglVendor',
+  // Errors
+  'errors.errors',
+];
+
+/**
+ * Generate a 64-character fuzzy hash from fingerprint components
+ * The fuzzy hash allows for similarity matching between fingerprints
+ */
+export async function generateFuzzyHash(components: ComponentResults): Promise<string> {
+  const MAX_BINS = 64;
+
+  // Extract all metrics from components
+  const metricsMap: Record<string, unknown> = {};
+
+  for (const [sectionKey, section] of Object.entries(components)) {
+    if (!section || !section.data) continue;
+
+    for (const [key, value] of Object.entries(section.data as Record<string, unknown>)) {
+      if (key === '$hash' || key === 'lied') continue;
+      metricsMap[`${sectionKey}.${key}`] = value;
+    }
+  }
+
+  // Calculate bin size
+  const binSize = Math.ceil(FUZZY_METRIC_KEYS.length / MAX_BINS);
+
+  // Create bins and hash each bin
+  const binHashes: string[] = [];
+
+  for (let i = 0; i < FUZZY_METRIC_KEYS.length; i += binSize) {
+    const keySet = FUZZY_METRIC_KEYS.slice(i, i + binSize);
+    const binValues = keySet.map((key) => metricsMap[key]);
+    const binHash = await sha256(binValues);
+    binHashes.push(binHash[0]); // Take first character of each bin hash
+  }
+
+  // Pad to 64 characters if needed
+  return binHashes.join('').padEnd(64, '0');
+}
+
+/**
+ * Calculate Hamming distance between two fuzzy hashes
+ * Returns the number of positions where characters differ
+ */
+export function hammingDistance(hash1: string, hash2: string): number {
+  if (hash1.length !== hash2.length) {
+    throw new Error('Hashes must be the same length');
+  }
+
+  let distance = 0;
+  for (let i = 0; i < hash1.length; i++) {
+    if (hash1[i] !== hash2[i]) {
+      distance++;
+    }
+  }
+  return distance;
+}
+
+/**
+ * Calculate similarity score between two fuzzy hashes
+ * Returns a value between 0 and 1 (1 = identical)
+ */
+export function calculateSimilarity(hash1: string, hash2: string): number {
+  const distance = hammingDistance(hash1, hash2);
+  return 1 - distance / Math.max(hash1.length, hash2.length);
+}
+
+/**
+ * Generate the final combined fingerprint hash
+ */
+export async function generateFingerprint(components: ComponentResults): Promise<string> {
+  // Collect all component hashes in deterministic order
+  const componentHashes: string[] = [];
+  const sortedKeys = Object.keys(components).sort();
+
+  for (const key of sortedKeys) {
+    const component = components[key as keyof ComponentResults];
+    if (component?.hash) {
+      componentHashes.push(component.hash);
+    }
+  }
+
+  // Generate final hash from all component hashes
+  return sha256(componentHashes);
+}
+
+/**
+ * Cipher data using AES-GCM (for optional encrypted transmission)
+ */
+export async function cipher(data: unknown): Promise<{
+  message: string;
+  vector: string;
+  key: string;
+}> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await crypto.subtle.generateKey(
+    { name: 'AES-GCM', length: 256 },
+    true,
+    ['encrypt', 'decrypt']
+  );
+
+  const json = safeStringify(data);
+  const encoded = new TextEncoder().encode(json);
+
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    encoded
+  );
+
+  const message = btoa(String.fromCharCode(...new Uint8Array(ciphertext)));
+  const vector = btoa(String.fromCharCode(...iv));
+  const { k: keyData } = await crypto.subtle.exportKey('jwk', key);
+
+  return { message, vector, key: keyData! };
+}
+
+/**
+ * Decipher AES-GCM encrypted data
+ */
+export async function decipher(
+  message: string,
+  vector: string,
+  keyData: string
+): Promise<unknown> {
+  const key = await crypto.subtle.importKey(
+    'jwk',
+    { kty: 'oct', k: keyData, alg: 'A256GCM', ext: true },
+    { name: 'AES-GCM' },
+    false,
+    ['decrypt']
+  );
+
+  const iv = new Uint8Array(atob(vector).split('').map((c) => c.charCodeAt(0)));
+  const ciphertext = new Uint8Array(atob(message).split('').map((c) => c.charCodeAt(0)));
+
+  const decrypted = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    ciphertext
+  );
+
+  const json = new TextDecoder().decode(decrypted);
+  return JSON.parse(json);
+}

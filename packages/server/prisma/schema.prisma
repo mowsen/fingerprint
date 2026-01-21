@@ -1,0 +1,76 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Visitor {
+  id           String        @id @default(uuid())
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  fingerprints Fingerprint[]
+  sessions     Session[]
+
+  @@map("visitors")
+}
+
+model Fingerprint {
+  id              String    @id @default(uuid())
+  visitor         Visitor   @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  visitorId       String
+  fingerprintHash String    @db.VarChar(64)
+  fuzzyHash       String    @db.VarChar(64)
+  components      Json
+  rawData         Json?
+  entropy         Float?
+  confidence      Float?
+  createdAt       DateTime  @default(now())
+  sessions        Session[]
+
+  @@index([fingerprintHash])
+  @@index([fuzzyHash])
+  @@index([visitorId])
+  @@map("fingerprints")
+}
+
+model Session {
+  id            String       @id @default(uuid())
+  visitor       Visitor      @relation(fields: [visitorId], references: [id], onDelete: Cascade)
+  visitorId     String
+  fingerprint   Fingerprint? @relation(fields: [fingerprintId], references: [id], onDelete: SetNull)
+  fingerprintId String?
+  ipAddress     String?      @db.VarChar(45)
+  userAgent     String?
+  referer       String?
+  firstSeen     DateTime     @default(now())
+  lastSeen      DateTime     @updatedAt
+  metadata      Json?
+
+  @@index([visitorId])
+  @@index([fingerprintId])
+  @@index([firstSeen])
+  @@map("sessions")
+}
+
+model Stats {
+  id               String   @id @default(uuid())
+  date             DateTime @default(now()) @db.Date
+  totalVisitors    Int      @default(0)
+  uniqueVisitors   Int      @default(0)
+  totalFingerprints Int     @default(0)
+  exactMatches     Int      @default(0)
+  fuzzyMatches     Int      @default(0)
+  newVisitors      Int      @default(0)
+  avgEntropy       Float?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@unique([date])
+  @@map("stats")
+}
