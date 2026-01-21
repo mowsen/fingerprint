@@ -1,5 +1,11 @@
 import { prisma } from '../index';
-import { Prisma } from '@prisma/client';
+import { Prisma, TrustLevel } from '@prisma/client';
+import {
+  calculateCrowdBlendingScore,
+  getConfidenceBoost,
+  shouldTrustMatch,
+  CrowdBlendingResult,
+} from './crowd-blending';
 
 export interface MatchResult {
   matchType: 'exact' | 'stable' | 'gpu' | 'fuzzy-stable' | 'fuzzy' | 'new';
@@ -7,6 +13,7 @@ export interface MatchResult {
   visitorId: string;
   fingerprintId: string;
   isNewVisitor: boolean;
+  crowdBlending?: CrowdBlendingResult;
 }
 
 export interface FingerprintInput {
@@ -57,12 +64,19 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     // Update session for existing visitor
     await createSession(exactMatch.visitorId, exactMatch.id, ipAddress, userAgent, referer);
 
+    // Apply crowd-blending validation
+    const validation = await applyMatchValidation(exactMatch.visitorId, 'exact', 1.0);
+
+    // Update visitor trust data (async, don't wait)
+    updateVisitorTrust(exactMatch.visitorId, validation.crowdBlending).catch(console.error);
+
     return {
       matchType: 'exact',
-      confidence: 1.0,
+      confidence: validation.confidence,
       visitorId: exactMatch.visitorId,
       fingerprintId: exactMatch.id,
       isNewVisitor: false,
+      crowdBlending: validation.crowdBlending,
     };
   }
 
@@ -75,6 +89,9 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     });
 
     if (stableMatch) {
+      // Apply crowd-blending validation first
+      const validation = await applyMatchValidation(stableMatch.visitorId, 'stable', 0.95);
+
       // Store new fingerprint for existing visitor (different browser)
       const newFingerprint = await prisma.fingerprint.create({
         data: {
@@ -85,19 +102,23 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
           gpuTimingHash,
           components: components as Prisma.InputJsonValue,
           entropy,
-          confidence: 0.95,
+          confidence: validation.confidence,
           isFarbled: isFarbled || false,
         },
       });
 
       await createSession(stableMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
 
+      // Update visitor trust data (async, don't wait)
+      updateVisitorTrust(stableMatch.visitorId, validation.crowdBlending).catch(console.error);
+
       return {
         matchType: 'stable',
-        confidence: 0.95,
+        confidence: validation.confidence,
         visitorId: stableMatch.visitorId,
         fingerprintId: newFingerprint.id,
         isNewVisitor: false,
+        crowdBlending: validation.crowdBlending,
       };
     }
   }
@@ -111,6 +132,9 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     });
 
     if (gpuMatch) {
+      // Apply crowd-blending validation first
+      const validation = await applyMatchValidation(gpuMatch.visitorId, 'gpu', 0.92);
+
       // Store new fingerprint for existing visitor
       const newFingerprint = await prisma.fingerprint.create({
         data: {
@@ -121,19 +145,23 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
           gpuTimingHash,
           components: components as Prisma.InputJsonValue,
           entropy,
-          confidence: 0.92,
+          confidence: validation.confidence,
           isFarbled: isFarbled || false,
         },
       });
 
       await createSession(gpuMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
 
+      // Update visitor trust data (async, don't wait)
+      updateVisitorTrust(gpuMatch.visitorId, validation.crowdBlending).catch(console.error);
+
       return {
         matchType: 'gpu',
-        confidence: 0.92,
+        confidence: validation.confidence,
         visitorId: gpuMatch.visitorId,
         fingerprintId: newFingerprint.id,
         isNewVisitor: false,
+        crowdBlending: validation.crowdBlending,
       };
     }
   }
@@ -170,6 +198,11 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     }
 
     if (bestStableMatch) {
+      const baseConfidence = 1 - bestStableMatch.distance / 64;
+
+      // Apply crowd-blending validation first
+      const validation = await applyMatchValidation(bestStableMatch.visitorId, 'fuzzy-stable', baseConfidence);
+
       const newFingerprint = await prisma.fingerprint.create({
         data: {
           visitorId: bestStableMatch.visitorId,
@@ -179,19 +212,23 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
           gpuTimingHash,
           components: components as Prisma.InputJsonValue,
           entropy,
-          confidence: 1 - bestStableMatch.distance / 64,
+          confidence: validation.confidence,
           isFarbled: isFarbled || false,
         },
       });
 
       await createSession(bestStableMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
 
+      // Update visitor trust data (async, don't wait)
+      updateVisitorTrust(bestStableMatch.visitorId, validation.crowdBlending).catch(console.error);
+
       return {
         matchType: 'fuzzy-stable',
-        confidence: 1 - bestStableMatch.distance / 64,
+        confidence: validation.confidence,
         visitorId: bestStableMatch.visitorId,
         fingerprintId: newFingerprint.id,
         isNewVisitor: false,
+        crowdBlending: validation.crowdBlending,
       };
     }
   }
@@ -229,6 +266,11 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
   }
 
   if (bestMatch) {
+    const baseConfidence = 1 - bestMatch.distance / 64;
+
+    // Apply crowd-blending validation first
+    const validation = await applyMatchValidation(bestMatch.visitorId, 'fuzzy', baseConfidence);
+
     // Store new fingerprint for existing visitor
     const newFingerprint = await prisma.fingerprint.create({
       data: {
@@ -239,7 +281,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         gpuTimingHash,
         components: components as Prisma.InputJsonValue,
         entropy,
-        confidence: 1 - bestMatch.distance / 64,
+        confidence: validation.confidence,
         isFarbled: isFarbled || false,
       },
     });
@@ -247,12 +289,16 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     // Create session
     await createSession(bestMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
 
+    // Update visitor trust data (async, don't wait)
+    updateVisitorTrust(bestMatch.visitorId, validation.crowdBlending).catch(console.error);
+
     return {
       matchType: 'fuzzy',
-      confidence: 1 - bestMatch.distance / 64,
+      confidence: validation.confidence,
       visitorId: bestMatch.visitorId,
       fingerprintId: newFingerprint.id,
       isNewVisitor: false,
+      crowdBlending: validation.crowdBlending,
     };
   }
 
@@ -310,6 +356,62 @@ async function createSession(
       referer,
     },
   });
+}
+
+/**
+ * Update visitor's cached trust data
+ */
+async function updateVisitorTrust(
+  visitorId: string,
+  crowdBlending: CrowdBlendingResult
+): Promise<void> {
+  // Map trust level string to enum
+  const trustLevelMap: Record<CrowdBlendingResult['trustLevel'], TrustLevel> = {
+    new: TrustLevel.NEW,
+    returning: TrustLevel.RETURNING,
+    trusted: TrustLevel.TRUSTED,
+    verified: TrustLevel.VERIFIED,
+  };
+
+  await prisma.visitor.update({
+    where: { id: visitorId },
+    data: {
+      trustLevel: trustLevelMap[crowdBlending.trustLevel],
+      crowdScore: crowdBlending.score,
+      uniqueIPs: crowdBlending.uniqueIPs,
+      visitCount: crowdBlending.visitCount,
+      lastScoreUpdate: new Date(),
+    },
+  });
+}
+
+/**
+ * Apply crowd-blending validation and confidence adjustment
+ */
+async function applyMatchValidation(
+  visitorId: string,
+  matchType: MatchResult['matchType'],
+  baseConfidence: number
+): Promise<{ confidence: number; crowdBlending: CrowdBlendingResult }> {
+  const crowdBlending = await calculateCrowdBlendingScore(visitorId);
+
+  // Check if match should be trusted based on crowd-blending
+  if (!shouldTrustMatch(crowdBlending, matchType)) {
+    // Reduce confidence for untrusted matches
+    return {
+      confidence: baseConfidence * 0.7,
+      crowdBlending,
+    };
+  }
+
+  // Apply confidence boost based on crowd-blending score
+  const boost = getConfidenceBoost(crowdBlending, matchType);
+  const adjustedConfidence = Math.min(1.0, baseConfidence + boost);
+
+  return {
+    confidence: Math.round(adjustedConfidence * 1000) / 1000,
+    crowdBlending,
+  };
 }
 
 /**

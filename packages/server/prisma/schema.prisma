@@ -10,12 +10,27 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Trust levels for crowd-blending score
+enum TrustLevel {
+  NEW       // First visit
+  RETURNING // 2+ visits, single IP
+  TRUSTED   // 3+ visits, 2+ IPs
+  VERIFIED  // High crowd-blending score (>=0.7)
+}
+
 model Visitor {
-  id           String        @id @default(uuid())
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  fingerprints Fingerprint[]
-  sessions     Session[]
+  id              String        @id @default(uuid())
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  fingerprints    Fingerprint[]
+  sessions        Session[]
+
+  // Trust tracking (cached from crowd-blending calculation)
+  trustLevel      TrustLevel    @default(NEW)
+  crowdScore      Float         @default(0)
+  uniqueIPs       Int           @default(0)
+  visitCount      Int           @default(0)
+  lastScoreUpdate DateTime?
 
   @@map("visitors")
 }

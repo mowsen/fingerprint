@@ -78,7 +78,52 @@ async function getUserAgentData(): Promise<NavigatorData['userAgentData'] | unde
   }
 }
 
-// Get permissions state
+/**
+ * Get a single permission with retry mechanism for consensus
+ * Inspired by ThumbmarkJS - check 3 times and take most frequent value
+ * This filters out transient permission states
+ */
+async function getPermissionWithRetry(
+  name: string,
+  retries = 3
+): Promise<string | null> {
+  if (!navigator.permissions?.query) {
+    return null;
+  }
+
+  const results: string[] = [];
+
+  for (let i = 0; i < retries; i++) {
+    try {
+      const status = await navigator.permissions.query({ name: name as PermissionName });
+      results.push(status.state);
+    } catch {
+      results.push('error');
+    }
+
+    // Small delay between checks to catch transient states
+    if (i < retries - 1) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+  }
+
+  // Filter out errors
+  const validResults = results.filter((r) => r !== 'error');
+  if (validResults.length === 0) {
+    return null;
+  }
+
+  // Return most frequent result (consensus)
+  const counts = validResults.reduce((acc, r) => {
+    acc[r] = (acc[r] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  return sorted[0][0];
+}
+
+// Get permissions state with retry consensus
 async function getPermissions(): Promise<Record<string, string>> {
   const permissions: Record<string, string> = {};
   const permissionNames = [
@@ -104,12 +149,17 @@ async function getPermissions(): Promise<Record<string, string>> {
     return permissions;
   }
 
-  for (const name of permissionNames) {
-    try {
-      const result = await navigator.permissions.query({ name: name as PermissionName });
-      permissions[name] = result.state;
-    } catch {
-      // Permission not supported
+  // Check all permissions in parallel with retry
+  const results = await Promise.all(
+    permissionNames.map(async (name) => ({
+      name,
+      state: await getPermissionWithRetry(name),
+    }))
+  );
+
+  for (const { name, state } of results) {
+    if (state) {
+      permissions[name] = state;
     }
   }
 

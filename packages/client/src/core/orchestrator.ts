@@ -13,6 +13,12 @@ import type {
 } from '../types';
 import { sha256, generateFuzzyHash, generateFingerprint, generateStableHash } from './crypto';
 import { createTimer, createPerformanceLogger, calculateEntropyBits } from './helpers';
+import {
+  getExcludedComponents,
+  isComponentExcluded,
+  detectBrowser,
+  detectActiveModes,
+} from './stabilization';
 
 // Module imports
 import { collectCanvas } from '../modules/canvas';
@@ -227,6 +233,48 @@ function calculateTotalEntropy(
 }
 
 /**
+ * Create a filtered copy of components with excluded paths nullified
+ * This is used for stable hash generation to exclude unstable components
+ */
+function filterComponents(
+  components: ComponentResults,
+  excluded: Set<string>
+): ComponentResults {
+  if (excluded.size === 0) return components;
+
+  const filtered: ComponentResults = {};
+
+  for (const [moduleName, moduleResult] of Object.entries(components)) {
+    if (!moduleResult) continue;
+
+    // Check if entire module is excluded
+    if (excluded.has(moduleName)) {
+      continue;
+    }
+
+    // Check individual data fields
+    const filteredData: Record<string, unknown> = {};
+    const data = moduleResult.data as Record<string, unknown> | null;
+
+    if (data) {
+      for (const [key, value] of Object.entries(data)) {
+        const path = `${moduleName}.${key}`;
+        if (!isComponentExcluded(path, excluded)) {
+          filteredData[key] = value;
+        }
+      }
+    }
+
+    (filtered as Record<string, ModuleResult<unknown>>)[moduleName] = {
+      ...moduleResult,
+      data: filteredData,
+    };
+  }
+
+  return filtered;
+}
+
+/**
  * Main Fingerprint class
  */
 export class Fingerprint {
@@ -268,18 +316,39 @@ export class Fingerprint {
       (components as Record<string, ModuleResult<unknown>>)[name] = result;
     }
 
-    // Generate hashes (fingerprint, fuzzyHash, and cross-browser stableHash)
+    // Calculate detection first (we need farbling info for stabilization)
+    const detection = calculateDetection(components);
+
+    // Detect browser and active modes for stabilization
+    const browser = detectBrowser();
+    const isFarbled = detection.isFarbled || false;
+    const isPrivate = false; // Can't reliably detect private mode
+    const activeModes = detectActiveModes(isFarbled, isPrivate);
+
+    // Get excluded components based on browser and modes
+    const excludedComponents = getExcludedComponents(
+      browser.name,
+      browser.version,
+      activeModes
+    );
+
+    if (this.config.debug && excludedComponents.size > 0) {
+      logger.log(`Stabilization: excluding ${[...excludedComponents].join(', ')}`);
+    }
+
+    // Generate hashes using filtered components for fuzzy/stable hashes
+    const filteredComponents = filterComponents(components, excludedComponents);
+
     const [fingerprint, fuzzyHash, stableHash] = await Promise.all([
-      generateFingerprint(components),
-      generateFuzzyHash(components),
-      generateStableHash(components),
+      generateFingerprint(components), // Full fingerprint uses all components
+      generateFuzzyHash(filteredComponents), // Fuzzy hash excludes unstable components
+      generateStableHash(components), // Stable hash uses its own key selection
     ]);
 
     // Get GPU timing hash if available
     const gpuTimingHash = components.gpuTiming?.hash || undefined;
 
-    // Calculate detection and entropy
-    const detection = calculateDetection(components);
+    // Calculate entropy
     const entropy = calculateTotalEntropy(components, this.enabledModules);
 
     const duration = timer.stop();

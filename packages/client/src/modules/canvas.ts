@@ -7,6 +7,65 @@ import type { ModuleResult, CanvasData } from '../types';
 import { sha256 } from '../core/crypto';
 import { CSS_FONT_FAMILY, EMOJIS, IS_WEBKIT, attempt } from '../core/helpers';
 
+/**
+ * Multi-render consensus - filter out noise from anti-fingerprinting tools
+ * Renders multiple times and picks the most common byte value per pixel channel
+ * This dramatically improves stability against Brave farbling and similar tools
+ */
+function getMostCommonPixels(imageDatas: ImageData[], width: number, height: number): ImageData {
+  const result = new ImageData(width, height);
+  const channelCount = width * height * 4;
+
+  for (let i = 0; i < channelCount; i++) {
+    // Count frequency of each byte value across all renders
+    const counts = new Map<number, number>();
+    for (const imageData of imageDatas) {
+      const val = imageData.data[i];
+      counts.set(val, (counts.get(val) || 0) + 1);
+    }
+
+    // Pick most frequent value
+    let maxCount = 0;
+    let mostCommon = 0;
+    for (const [val, count] of counts) {
+      if (count > maxCount) {
+        maxCount = count;
+        mostCommon = val;
+      }
+    }
+    result.data[i] = mostCommon;
+  }
+  return result;
+}
+
+/**
+ * Render canvas with consensus - renders multiple times to filter noise
+ */
+function renderWithConsensus(
+  canvas: HTMLCanvasElement,
+  context: CanvasRenderingContext2D,
+  renderFn: () => void,
+  renderCount = 3
+): string {
+  const width = canvas.width;
+  const height = canvas.height;
+  const imageDatas: ImageData[] = [];
+
+  for (let i = 0; i < renderCount; i++) {
+    // Clear and re-render
+    context.clearRect(0, 0, width, height);
+    renderFn();
+    imageDatas.push(context.getImageData(0, 0, width, height));
+  }
+
+  // Get consensus pixels
+  const consensusData = getMostCommonPixels(imageDatas, width, height);
+
+  // Put consensus data back on canvas and get dataURL
+  context.putImageData(consensusData, 0, 0);
+  return canvas.toDataURL();
+}
+
 // Picasso-like canvas painting for fingerprinting
 interface PaintOptions {
   canvas: HTMLCanvasElement;
@@ -303,7 +362,7 @@ function getTextMetrics(context: CanvasRenderingContext2D): {
 
 export async function collectCanvas(): Promise<ModuleResult<CanvasData>> {
   const canvas = document.createElement('canvas');
-  const context = canvas.getContext('2d');
+  const context = canvas.getContext('2d', { willReadFrequently: true });
 
   if (!context) {
     return {
@@ -315,18 +374,21 @@ export async function collectCanvas(): Promise<ModuleResult<CanvasData>> {
     };
   }
 
-  // Main painting fingerprint
+  // Main painting fingerprint with multi-render consensus
   const imageSize = IS_WEBKIT ? 50 : 75;
-  paintCanvas({
-    canvas,
-    context,
-    strokeText: true,
-    cssFontFamily: CSS_FONT_FAMILY,
-    area: { width: imageSize, height: imageSize },
-    rounds: 10,
-  });
+  canvas.width = imageSize;
+  canvas.height = imageSize;
 
-  const dataURI = canvas.toDataURL();
+  const dataURI = renderWithConsensus(canvas, context, () => {
+    paintCanvas({
+      canvas,
+      context,
+      strokeText: true,
+      cssFontFamily: CSS_FONT_FAMILY,
+      area: { width: imageSize, height: imageSize },
+      rounds: 10,
+    });
+  });
 
   // Get pixel modifications
   const mods = getPixelMods();
@@ -334,29 +396,32 @@ export async function collectCanvas(): Promise<ModuleResult<CanvasData>> {
   // Get text metrics
   const textMetricsData = getTextMetrics(context);
 
-  // Paint-only fingerprint
-  paintCanvas({
-    canvas,
-    context,
-    area: { width: 75, height: 75 },
+  // Paint-only fingerprint with consensus
+  canvas.width = 75;
+  canvas.height = 75;
+  const paintURI = renderWithConsensus(canvas, context, () => {
+    paintCanvas({
+      canvas,
+      context,
+      area: { width: 75, height: 75 },
+    });
   });
-  const paintURI = canvas.toDataURL();
 
-  // Text fingerprint
-  context.clearRect(0, 0, canvas.width, canvas.height);
+  // Text fingerprint with consensus
   canvas.width = 50;
   canvas.height = 50;
-  context.font = `50px ${CSS_FONT_FAMILY}`;
-  context.fillText('A', 7, 37);
-  const textURI = canvas.toDataURL();
+  const textURI = renderWithConsensus(canvas, context, () => {
+    context.font = `50px ${CSS_FONT_FAMILY}`;
+    context.fillText('A', 7, 37);
+  });
 
-  // Emoji fingerprint
-  context.clearRect(0, 0, canvas.width, canvas.height);
+  // Emoji fingerprint with consensus
   canvas.width = 50;
   canvas.height = 50;
-  context.font = `35px ${CSS_FONT_FAMILY}`;
-  context.fillText('👾', 0, 37);
-  const emojiURI = canvas.toDataURL();
+  const emojiURI = renderWithConsensus(canvas, context, () => {
+    context.font = `35px ${CSS_FONT_FAMILY}`;
+    context.fillText('👾', 0, 37);
+  });
 
   const data: CanvasData = {
     dataURI,
