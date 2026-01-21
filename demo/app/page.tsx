@@ -16,12 +16,35 @@ export default function Home() {
   const hasCollected = useRef(false);
   const isWarmedUp = useRef(false);
 
-  // Auto-collect on page load
+  // Warm-up on mount (before auto-collect)
   useEffect(() => {
-    if (!hasCollected.current) {
-      hasCollected.current = true;
-      collectFingerprint();
-    }
+    const warmUp = async () => {
+      // Wait for fonts to load
+      if (document.fonts && document.fonts.ready) {
+        await document.fonts.ready;
+      }
+
+      // Import and warm up fingerprint APIs
+      const { Fingerprint } = await import('@anthropic/fingerprint-client');
+      const fp = new Fingerprint({ modules: 'all', debug: false });
+
+      // Two warm-up collections to fully stabilize browser APIs
+      await fp.collect();
+      await fp.collect();
+
+      // Small delay for DOM to fully settle
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      isWarmedUp.current = true;
+
+      // Now auto-collect
+      if (!hasCollected.current) {
+        hasCollected.current = true;
+        collectFingerprint();
+      }
+    };
+
+    warmUp();
   }, []);
 
   const collectFingerprint = async () => {
@@ -37,13 +60,7 @@ export default function Home() {
         debug: false,
       });
 
-      // Warm-up collection (discarded) - browser APIs need initialization
-      if (!isWarmedUp.current) {
-        await fp.collect();
-        isWarmedUp.current = true;
-      }
-
-      // Real collection
+      // Real collection (warm-up already done in useEffect)
       const fingerprintResult = await fp.collect();
       setResult(fingerprintResult);
 
