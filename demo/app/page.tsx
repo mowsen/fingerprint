@@ -26,7 +26,13 @@ export default function Home() {
 
       // Import and warm up fingerprint APIs
       const { Fingerprint } = await import('@anthropic/fingerprint-client');
-      const fp = new Fingerprint({ modules: 'all', debug: false });
+      // Exclude domrect - it's unstable across page renders
+      const stableModules = [
+        'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
+        'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
+        'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
+      ];
+      const fp = new Fingerprint({ modules: stableModules, debug: false });
 
       // Two warm-up collections to fully stabilize browser APIs
       await fp.collect();
@@ -55,8 +61,14 @@ export default function Home() {
       // Dynamically import to ensure client-side only
       const { Fingerprint } = await import('@anthropic/fingerprint-client');
 
+      // Exclude domrect - it's unstable across page renders
+      const stableModules = [
+        'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
+        'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
+        'window', 'headless', 'lies', 'resistance', 'worker', 'errors'
+      ];
       const fp = new Fingerprint({
-        modules: 'all',
+        modules: stableModules,
         debug: false,
       });
 
