@@ -1,4 +1,5 @@
 import { prisma } from '../index';
+import { Prisma } from '@prisma/client';
 
 export interface MatchResult {
   matchType: 'exact' | 'fuzzy' | 'new';
@@ -100,7 +101,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         visitorId: bestMatch.visitorId,
         fingerprintHash: fingerprint,
         fuzzyHash,
-        components,
+        components: components as Prisma.InputJsonValue,
         entropy,
         confidence: 1 - bestMatch.distance / 64,
       },
@@ -125,7 +126,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         create: {
           fingerprintHash: fingerprint,
           fuzzyHash,
-          components,
+          components: components as Prisma.InputJsonValue,
           entropy,
           confidence: 1.0,
         },
@@ -134,7 +135,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     include: {
       fingerprints: true,
     },
-  });
+  }) as { id: string; fingerprints: { id: string }[] };
 
   const newFingerprintId = newVisitor.fingerprints[0].id;
 
