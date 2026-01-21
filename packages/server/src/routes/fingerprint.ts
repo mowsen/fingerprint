@@ -28,6 +28,7 @@ const fingerprintSchema = z.object({
   components: z.record(z.unknown()),
   entropy: z.number().optional(),
   timestamp: z.number().optional(),
+  detectedBrowser: z.string().optional(),
 });
 
 /**
@@ -46,11 +47,15 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const { fingerprint, fuzzyHash, stableHash, gpuTimingHash, components, entropy } = parsed.data;
+    const { fingerprint, fuzzyHash, stableHash, gpuTimingHash, components, entropy, detectedBrowser } = parsed.data;
 
-    // Extract farbling info from components if available
-    const resistanceData = components?.resistance as { data?: { isFarbled?: boolean } } | undefined;
+    // Extract farbling info and privacy info from components if available
+    const resistanceData = components?.resistance as { data?: { isFarbled?: boolean; privacy?: string } } | undefined;
     const isFarbled = resistanceData?.data?.isFarbled || false;
+
+    // Use client-detected browser (more accurate for Brave) or fallback to user-agent parsing
+    const clientBrowser = detectedBrowser ||
+      (resistanceData?.data?.privacy === 'Brave Shields' ? 'Brave' : undefined);
 
     // Get client info from request
     const ipAddress =
@@ -104,6 +109,9 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
       browser: parseBrowser(session.userAgent || undefined),
     })) || [];
 
+    // Determine browser for current request (prefer client detection)
+    const currentBrowser = clientBrowser || parseBrowser(userAgent);
+
     // Return result with visitor history
     return res.json({
       visitorId: result.visitorId,
@@ -122,7 +130,7 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
         timestamp: new Date().toISOString(),
         ipAddress: ipAddress || 'unknown',
         userAgent: userAgent || 'unknown',
-        browser: parseBrowser(userAgent),
+        browser: currentBrowser,
       },
       // Recent visit history
       recentVisits,

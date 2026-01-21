@@ -77,6 +77,17 @@ export default function Home() {
 
       // Try to identify with server if available
       try {
+        // Detect browser from client-side (more accurate than user-agent parsing)
+        const { LIKE_BRAVE, isBraveBrowser, IS_GECKO, IS_WEBKIT } = await import('@anthropic/fingerprint-client');
+        let detectedBrowser = 'Chrome';
+        if (LIKE_BRAVE || isBraveBrowser()) {
+          detectedBrowser = 'Brave';
+        } else if (IS_GECKO) {
+          detectedBrowser = 'Firefox';
+        } else if (IS_WEBKIT) {
+          detectedBrowser = 'Safari';
+        }
+
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
         const response = await fetch(`${apiUrl}/api/fingerprint`, {
           method: 'POST',
@@ -88,6 +99,7 @@ export default function Home() {
             gpuTimingHash: fingerprintResult.gpuTimingHash,
             components: fingerprintResult.components,
             entropy: fingerprintResult.entropy,
+            detectedBrowser,
           }),
         });
 
