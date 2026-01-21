@@ -5,19 +5,8 @@ import FingerprintDisplay from '@/components/FingerprintDisplay';
 
 export default function Home() {
   const [isCollecting, setIsCollecting] = useState(false);
-  const [result, setResult] = useState<{
-    fingerprint: string;
-    fuzzyHash: string;
-    components: Record<string, unknown>;
-    detection: {
-      isHeadless: boolean;
-      liesDetected: number;
-      privacyTools: string[];
-      confidence: number;
-    };
-    entropy: number;
-    duration: number;
-  } | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
   const [visitorInfo, setVisitorInfo] = useState<{
     visitorId: string;
