@@ -14,6 +14,7 @@ export default function Home() {
     confidence: number;
   } | null>(null);
   const hasCollected = useRef(false);
+  const isWarmedUp = useRef(false);
 
   // Auto-collect on page load
   useEffect(() => {
@@ -33,9 +34,16 @@ export default function Home() {
 
       const fp = new Fingerprint({
         modules: 'all',
-        debug: true,
+        debug: false,
       });
 
+      // Warm-up collection (discarded) - browser APIs need initialization
+      if (!isWarmedUp.current) {
+        await fp.collect();
+        isWarmedUp.current = true;
+      }
+
+      // Real collection
       const fingerprintResult = await fp.collect();
       setResult(fingerprintResult);
 
