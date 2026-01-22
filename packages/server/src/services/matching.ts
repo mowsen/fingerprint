@@ -222,62 +222,89 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
 
   // 3.5. Try FONT-BASED MATCH (Safari Private mode stable!)
   // Fonts are not randomized by Safari ITP, so they're reliable for identification
+  // IMPORTANT: Font-only matching is risky (many users have same default fonts)
+  // We REQUIRE at least 2 additional signals to match to avoid false positives
   const fontsComponent = components?.fonts as { hash?: string } | undefined;
   const fontHash = fontsComponent?.hash;
   const hasFontHash = fontHash && fontHash.length >= 8;
 
   if (hasFontHash) {
+    // Get other Safari-stable signals for verification
+    const speechComponent = components?.speech as { hash?: string } | undefined;
+    const timezoneComponent = components?.timezone as { hash?: string } | undefined;
+    const intlComponent = components?.intl as { hash?: string } | undefined;
+    const screenComponent = components?.screen as { hash?: string } | undefined;
+    const mathComponent = components?.math as { hash?: string } | undefined;
+
     // Look for fingerprints with matching font hash in components
-    // We need to search in the JSON components field
     const fontCandidates = await prisma.fingerprint.findMany({
       where: {
-        // Use raw query to search in JSON
         components: {
           path: ['fonts', 'hash'],
           equals: fontHash,
         },
       },
-      select: { id: true, visitorId: true },
+      select: { id: true, visitorId: true, components: true },
       orderBy: { createdAt: 'desc' },
       take: 10,
     });
 
-    if (fontCandidates.length > 0) {
-      const fontMatch = fontCandidates[0];
+    // Find candidates with multiple matching signals
+    for (const candidate of fontCandidates) {
+      const storedComponents = candidate.components as Record<string, { hash?: string }> | null;
+      if (!storedComponents) continue;
 
-      // Also check speech and timezone for additional confidence
-      const speechComponent = components?.speech as { hash?: string } | undefined;
-      const timezoneComponent = components?.timezone as { hash?: string } | undefined;
+      // Count how many additional signals match
+      let matchingSignals = 0;
+      const matchedSignals: string[] = ['fonts']; // fonts already matched
 
-      // Check if other Safari-stable signals also match
-      const otherCandidateData = await prisma.fingerprint.findFirst({
-        where: { id: fontMatch.id },
-        select: { components: true },
-      });
-
-      let matchConfidence = 0.75; // Base confidence for font match
-
-      if (otherCandidateData?.components) {
-        const storedComponents = otherCandidateData.components as Record<string, { hash?: string }>;
-
-        // Boost confidence if speech also matches
-        if (speechComponent?.hash && storedComponents?.speech?.hash === speechComponent.hash) {
-          matchConfidence += 0.10;
-        }
-
-        // Boost confidence if timezone also matches
-        if (timezoneComponent?.hash && storedComponents?.timezone?.hash === timezoneComponent.hash) {
-          matchConfidence += 0.05;
-        }
+      // Check timezone (very stable across browsers)
+      if (timezoneComponent?.hash && storedComponents?.timezone?.hash === timezoneComponent.hash) {
+        matchingSignals++;
+        matchedSignals.push('timezone');
       }
 
+      // Check intl (locale settings - stable)
+      if (intlComponent?.hash && storedComponents?.intl?.hash === intlComponent.hash) {
+        matchingSignals++;
+        matchedSignals.push('intl');
+      }
+
+      // Check speech (voices installed - stable)
+      if (speechComponent?.hash && storedComponents?.speech?.hash === speechComponent.hash) {
+        matchingSignals++;
+        matchedSignals.push('speech');
+      }
+
+      // Check math (JS engine specific - less stable across browsers but good signal)
+      if (mathComponent?.hash && storedComponents?.math?.hash === mathComponent.hash) {
+        matchingSignals++;
+        matchedSignals.push('math');
+      }
+
+      // Check screen (resolution - can change but good additional signal)
+      if (screenComponent?.hash && storedComponents?.screen?.hash === screenComponent.hash) {
+        matchingSignals++;
+        matchedSignals.push('screen');
+      }
+
+      // REQUIRE at least 2 additional matching signals to avoid false positives
+      // This ensures we don't match random users who happen to have same default fonts
+      if (matchingSignals < 2) {
+        continue; // Skip this candidate - not enough signals match
+      }
+
+      // Calculate confidence based on number of matching signals
+      // Base: 0.60 + 0.08 per additional signal (max ~0.92 with 4 signals)
+      const matchConfidence = Math.min(0.92, 0.60 + matchingSignals * 0.08);
+
       // Apply crowd-blending validation
-      const validation = await applyMatchValidation(fontMatch.visitorId, 'fonts' as MatchResult['matchType'], matchConfidence);
+      const validation = await applyMatchValidation(candidate.visitorId, 'fonts' as MatchResult['matchType'], matchConfidence);
 
       // Store new fingerprint for existing visitor
       const newFingerprint = await prisma.fingerprint.create({
         data: {
-          visitorId: fontMatch.visitorId,
+          visitorId: candidate.visitorId,
           fingerprintHash: fingerprint,
           fuzzyHash,
           stableHash,
@@ -289,15 +316,15 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         },
       });
 
-      await createSession(fontMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
+      await createSession(candidate.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
 
       // Update visitor trust data (async, don't wait)
-      updateVisitorTrust(fontMatch.visitorId, validation.crowdBlending).catch(console.error);
+      updateVisitorTrust(candidate.visitorId, validation.crowdBlending).catch(console.error);
 
       return {
         matchType: 'fonts',
         confidence: validation.confidence,
-        visitorId: fontMatch.visitorId,
+        visitorId: candidate.visitorId,
         fingerprintId: newFingerprint.id,
         isNewVisitor: false,
         crowdBlending: validation.crowdBlending,
