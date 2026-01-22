@@ -72,9 +72,24 @@ model Session {
   lastSeen      DateTime     @updatedAt
   metadata      Json?
 
+  // TLS fingerprint data (Phase 3)
+  tlsJa4        String?      @db.VarChar(64)
+  tlsJa3        String?      @db.VarChar(64)
+  tlsVersion    String?      @db.VarChar(16)
+  tlsSource     String?      @db.VarChar(16)
+
+  // HTTP fingerprint data (Phase 3)
+  httpFpHash    String?      @db.VarChar(64)
+
+  // Persistent identity tracking (Phase 3)
+  persistentIdUsed  Boolean  @default(false)
+  persistentIdValid Boolean  @default(false)
+
   @@index([visitorId])
   @@index([fingerprintId])
   @@index([firstSeen])
+  @@index([tlsJa4])
+  @@index([tlsJa3])
   @@map("sessions")
 }
 

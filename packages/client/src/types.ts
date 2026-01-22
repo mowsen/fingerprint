@@ -10,6 +10,7 @@ export type ModuleName =
   | 'navigator'
   | 'screen'
   | 'fonts'
+  | 'fontMetrics'
   | 'timezone'
   | 'math'
   | 'domrect'
@@ -26,7 +27,8 @@ export type ModuleName =
   | 'resistance'
   | 'worker'
   | 'errors'
-  | 'gpuTiming';
+  | 'gpuTiming'
+  | 'behavior';
 
 // Configuration options
 export interface FingerprintConfig {
@@ -323,6 +325,41 @@ export interface GpuTimingData {
   supported: boolean;
 }
 
+// Font Metrics module data (glyph dimension fingerprinting)
+export interface FontMetricsData {
+  signatures: Record<string, string>;
+  keyGlyphsSum: number;
+  renderingCharacteristics: Record<string, number>;
+  metricsSystemSum: number;
+  codePointCount: number;
+  fontCount: number;
+}
+
+// Behavior module data (mouse/scroll patterns)
+export interface BehaviorData {
+  mousePatterns: {
+    avgSpeed: number;
+    avgAcceleration: number;
+    straightLineRatio: number;
+    clickCount: number;
+    moveCount: number;
+    avgMoveDuration: number;
+  };
+  scrollPatterns: {
+    avgScrollSpeed: number;
+    scrollDirectionChanges: number;
+    avgScrollDistance: number;
+    scrollCount: number;
+  };
+  timingPatterns: {
+    avgInteractionInterval: number;
+    interactionVariance: number;
+    totalDuration: number;
+  };
+  sampleCount: number;
+  collectionDuration: number;
+}
+
 // Worker module data
 export interface WorkerData {
   userAgent?: string;
@@ -373,6 +410,7 @@ export interface ComponentResults {
   navigator?: ModuleResult<NavigatorData>;
   screen?: ModuleResult<ScreenData>;
   fonts?: ModuleResult<FontsData>;
+  fontMetrics?: ModuleResult<FontMetricsData>;
   timezone?: ModuleResult<TimezoneData>;
   math?: ModuleResult<MathData>;
   domrect?: ModuleResult<DOMRectData>;
@@ -390,6 +428,7 @@ export interface ComponentResults {
   worker?: ModuleResult<WorkerData>;
   errors?: ModuleResult<ErrorsData>;
   gpuTiming?: ModuleResult<GpuTimingData>;
+  behavior?: ModuleResult<BehaviorData>;
 }
 
 // Main fingerprint result

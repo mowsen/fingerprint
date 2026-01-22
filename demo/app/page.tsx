@@ -3,9 +3,72 @@
 import { useState, useEffect, useRef } from 'react';
 import FingerprintDisplay from '@/components/FingerprintDisplay';
 
+// Identification method descriptions
+const MATCH_TYPE_INFO: Record<string, { name: string; description: string; icon: string; color: string }> = {
+  exact: {
+    name: 'Exact Fingerprint Match',
+    description: 'Your browser fingerprint exactly matches a previous visit. This includes canvas rendering, WebGL, audio processing, and other browser characteristics.',
+    icon: '🎯',
+    color: 'green',
+  },
+  stable: {
+    name: 'Cross-Browser (Stable Hash)',
+    description: 'Identified via hardware-based features that remain constant across different browsers: GPU info, audio hardware, screen properties, and system fonts.',
+    icon: '🔗',
+    color: 'purple',
+  },
+  gpu: {
+    name: 'GPU Timing (DRAWNAPART)',
+    description: 'Identified via unique GPU execution timing patterns. This technique can identify specific GPU hardware even across browsers and incognito mode.',
+    icon: '🖥️',
+    color: 'indigo',
+  },
+  'fuzzy-stable': {
+    name: 'Fuzzy Hardware Match',
+    description: 'Your hardware fingerprint is very similar to a previous visit (within 4 character difference). Minor changes detected but core hardware signature matches.',
+    icon: '🔍',
+    color: 'teal',
+  },
+  fuzzy: {
+    name: 'Fuzzy Fingerprint Match',
+    description: 'Your fingerprint is similar to a previous visit (within 8 character difference). Some browser settings may have changed but overall profile matches.',
+    icon: '≈',
+    color: 'yellow',
+  },
+  persistent: {
+    name: 'Persistent Identity (Cookie/Storage)',
+    description: 'Identified via stored visitor ID in cookies or localStorage. This is the easiest method to evade - just clear your browser data!',
+    icon: '🍪',
+    color: 'orange',
+  },
+  new: {
+    name: 'New Visitor',
+    description: 'No matching fingerprint found. This is your first visit or your fingerprint has changed significantly.',
+    icon: '✨',
+    color: 'blue',
+  },
+};
+
+// Signal contribution to identification
+const SIGNAL_CONTRIBUTIONS = [
+  { name: 'Canvas Rendering', key: 'canvas', entropy: 12.5, description: 'How your browser renders 2D graphics' },
+  { name: 'WebGL/GPU Info', key: 'webgl', entropy: 15.0, description: 'Graphics card and WebGL implementation details' },
+  { name: 'Audio Processing', key: 'audio', entropy: 8.5, description: 'How your browser processes audio signals' },
+  { name: 'Font Metrics', key: 'fontMetrics', entropy: 8.5, description: 'Precise glyph dimensions and font rendering' },
+  { name: 'GPU Timing', key: 'gpuTiming', entropy: 8.0, description: 'Unique timing patterns of your GPU' },
+  { name: 'System Fonts', key: 'fonts', entropy: 10.0, description: 'Installed fonts on your system' },
+  { name: 'Navigator/Browser', key: 'navigator', entropy: 6.0, description: 'Browser and system information' },
+  { name: 'Screen Properties', key: 'screen', entropy: 4.5, description: 'Display resolution and color depth' },
+  { name: 'Worker Scope', key: 'worker', entropy: 5.0, description: 'Web Worker environment properties' },
+  { name: 'SVG Rendering', key: 'svg', entropy: 5.5, description: 'How your browser renders SVG graphics' },
+  { name: 'Math Operations', key: 'math', entropy: 4.0, description: 'Floating point math implementation' },
+  { name: 'Timezone/Intl', key: 'timezone', entropy: 3.0, description: 'Timezone and locale settings' },
+];
+
 export default function Home() {
   const [isCollecting, setIsCollecting] = useState(false);
   const [isFlushing, setIsFlushing] = useState(false);
+  const [isClearing, setIsClearing] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -24,9 +87,9 @@ export default function Home() {
 
       // Import and warm up fingerprint APIs
       const { Fingerprint } = await import('@anthropic/fingerprint-client');
-      // Exclude domrect - it's unstable across page renders
+      // Stable modules - excluding domrect (unstable) and behavior (requires interaction time)
       const stableModules = [
-        'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
+        'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'fontMetrics', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
         'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming'
       ] as const;
@@ -58,11 +121,11 @@ export default function Home() {
 
     try {
       // Dynamically import to ensure client-side only
-      const { Fingerprint } = await import('@anthropic/fingerprint-client');
+      const { Fingerprint, getPersistentIdentity, setPersistentIdentity } = await import('@anthropic/fingerprint-client');
 
-      // Exclude domrect - it's unstable across page renders
+      // Stable modules - excluding domrect (unstable) and behavior (requires interaction time)
       const stableModules = [
-        'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'timezone',
+        'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'fontMetrics', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
         'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming'
       ] as const;
@@ -89,6 +152,12 @@ export default function Home() {
           detectedBrowser = 'Safari';
         }
 
+        // Get persistent identity if available
+        const persistentIdentity = await getPersistentIdentity();
+        const persistentId = persistentIdentity
+          ? `${persistentIdentity.visitorId}.${persistentIdentity.signature}.${persistentIdentity.createdAt}`
+          : undefined;
+
         const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
         const response = await fetch(`${apiUrl}/api/fingerprint`, {
           method: 'POST',
@@ -101,12 +170,18 @@ export default function Home() {
             components: fingerprintResult.components,
             entropy: fingerprintResult.entropy,
             detectedBrowser,
+            persistentId,
           }),
         });
 
         if (response.ok) {
           const data = await response.json();
           setVisitorInfo(data);
+
+          // Update persistent identity if server says to
+          if (data.persistentIdentity?.shouldUpdate && data.persistentIdentity?.signature) {
+            await setPersistentIdentity(data.visitorId, data.persistentIdentity.signature);
+          }
         }
       } catch {
         // Server not available, that's fine - fingerprint still works locally
@@ -119,7 +194,7 @@ export default function Home() {
   };
 
   const flushAllVisitors = async () => {
-    if (!confirm('Are you sure you want to delete ALL visitors? This cannot be undone.')) {
+    if (!confirm('Are you sure you want to delete ALL visitors from the server? This cannot be undone.')) {
       return;
     }
 
@@ -149,6 +224,88 @@ export default function Home() {
     }
   };
 
+  const clearBrowserData = async () => {
+    setIsClearing(true);
+    setError(null);
+
+    try {
+      // Clear cookies
+      document.cookie.split(';').forEach(cookie => {
+        const name = cookie.split('=')[0].trim();
+        document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`;
+      });
+
+      // Clear localStorage
+      try {
+        localStorage.clear();
+      } catch {
+        // localStorage might be blocked
+      }
+
+      // Clear sessionStorage
+      try {
+        sessionStorage.clear();
+      } catch {
+        // sessionStorage might be blocked
+      }
+
+      // Clear IndexedDB
+      try {
+        const databases = await indexedDB.databases();
+        for (const db of databases) {
+          if (db.name) {
+            indexedDB.deleteDatabase(db.name);
+          }
+        }
+      } catch {
+        // IndexedDB might not support databases() or be blocked
+        try {
+          indexedDB.deleteDatabase('fingerprint_identity');
+        } catch {
+          // Ignore
+        }
+      }
+
+      // Also clear using the client library
+      try {
+        const { clearPersistentIdentity } = await import('@anthropic/fingerprint-client');
+        await clearPersistentIdentity();
+      } catch {
+        // Library might not be loaded
+      }
+
+      alert('Browser data cleared! Cookies, localStorage, sessionStorage, and IndexedDB have been wiped. Click "Collect Fingerprint" to test identification without stored data.');
+
+      // Reset state and re-collect
+      setVisitorInfo(null);
+      setResult(null);
+      hasCollected.current = false;
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear browser data');
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
+  // Get match type info
+  const matchInfo = visitorInfo ? MATCH_TYPE_INFO[visitorInfo.matchType] || MATCH_TYPE_INFO.new : null;
+
+  // Calculate which signals contributed
+  const getSignalContributions = () => {
+    if (!result?.components) return [];
+
+    return SIGNAL_CONTRIBUTIONS.map(signal => {
+      const component = result.components[signal.key];
+      const hasData = component && !component.error && component.hash;
+      return {
+        ...signal,
+        active: hasData,
+        hash: component?.hash?.slice(0, 8) || 'N/A',
+      };
+    }).sort((a, b) => b.entropy - a.entropy);
+  };
+
   // Show loading spinner while collecting
   if (isCollecting && !result) {
     return (
@@ -168,11 +325,11 @@ export default function Home() {
         <header className="mb-8">
           <h1 className="text-4xl font-bold mb-2">Fingerprint Demo</h1>
           <p className="text-gray-600 dark:text-gray-400">
-            Browser fingerprinting library demonstration
+            Browser fingerprinting library demonstration - see how you&apos;re identified
           </p>
         </header>
 
-        <div className="mb-8 flex gap-4">
+        <div className="mb-8 flex flex-wrap gap-4">
           <button
             onClick={collectFingerprint}
             disabled={isCollecting}
@@ -189,6 +346,26 @@ export default function Home() {
           </button>
 
           <button
+            onClick={clearBrowserData}
+            disabled={isClearing}
+            className="px-6 py-3 bg-yellow-600 text-white rounded-lg font-semibold
+                       hover:bg-yellow-700 disabled:bg-gray-400 disabled:cursor-not-allowed
+                       transition-colors flex items-center gap-2"
+          >
+            {isClearing ? (
+              <>
+                <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
+                Clearing...
+              </>
+            ) : (
+              <>
+                <span>🧹</span>
+                Clear Browser Data
+              </>
+            )}
+          </button>
+
+          <button
             onClick={flushAllVisitors}
             disabled={isFlushing}
             className="px-6 py-3 bg-red-600 text-white rounded-lg font-semibold
@@ -200,7 +377,7 @@ export default function Home() {
                 <span className="inline-block animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></span>
                 Flushing...
               </>
-            ) : 'Flush All Visitors'}
+            ) : 'Flush Server Data'}
           </button>
         </div>
 
@@ -210,7 +387,7 @@ export default function Home() {
           </div>
         )}
 
-        {visitorInfo && (
+        {visitorInfo && matchInfo && (
           <div className={`mb-8 p-6 rounded-lg border-2 ${
             visitorInfo.isNewVisitor
               ? 'bg-blue-50 dark:bg-blue-950 border-blue-400'
@@ -230,23 +407,12 @@ export default function Home() {
                   </>
                 )}
               </h3>
-              <span className={`px-3 py-1 rounded-full text-sm font-semibold ${
-                visitorInfo.matchType === 'exact'
-                  ? 'bg-green-200 text-green-800'
-                  : visitorInfo.matchType === 'stable'
-                  ? 'bg-purple-200 text-purple-800'
-                  : visitorInfo.matchType === 'gpu'
-                  ? 'bg-indigo-200 text-indigo-800'
-                  : visitorInfo.matchType === 'fuzzy-stable'
-                  ? 'bg-teal-200 text-teal-800'
-                  : visitorInfo.matchType === 'fuzzy'
-                  ? 'bg-yellow-200 text-yellow-800'
-                  : 'bg-blue-200 text-blue-800'
-              }`}>
-                {visitorInfo.matchType === 'stable' ? 'CROSS-BROWSER' :
-                 visitorInfo.matchType === 'gpu' ? 'GPU TIMING' :
-                 visitorInfo.matchType === 'fuzzy-stable' ? 'FUZZY STABLE' :
-                 visitorInfo.matchType.toUpperCase()} MATCH
+              <span className={`px-3 py-1 rounded-full text-sm font-semibold bg-${matchInfo.color}-200 text-${matchInfo.color}-800`}
+                    style={{
+                      backgroundColor: `var(--${matchInfo.color}-200, #e2e8f0)`,
+                      color: `var(--${matchInfo.color}-800, #1a202c)`,
+                    }}>
+                {matchInfo.icon} {matchInfo.name.toUpperCase()}
               </span>
             </div>
 
@@ -267,6 +433,37 @@ export default function Home() {
                 <div className="text-gray-500 dark:text-gray-400 text-xs uppercase tracking-wide">Browser</div>
                 <div className="font-semibold">{visitorInfo.request?.browser || 'Unknown'}</div>
               </div>
+            </div>
+
+            {/* Identification Method Explanation */}
+            <div className="mt-4 p-4 bg-white dark:bg-gray-800 rounded-lg">
+              <h4 className="font-semibold mb-2 flex items-center gap-2">
+                <span>{matchInfo.icon}</span>
+                How You Were Identified
+              </h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                {matchInfo.description}
+              </p>
+
+              {/* Persistent Identity Warning */}
+              {visitorInfo.persistentIdentity?.used && (
+                <div className="mt-2 p-3 bg-orange-100 dark:bg-orange-900/30 rounded-lg border border-orange-300">
+                  <p className="text-sm text-orange-800 dark:text-orange-200">
+                    <strong>⚠️ Easy to evade:</strong> You were identified using stored data (cookies/localStorage).
+                    Click &quot;Clear Browser Data&quot; above to remove this and test fingerprint-only identification.
+                  </p>
+                </div>
+              )}
+
+              {/* Hardware-based identification */}
+              {['stable', 'gpu', 'fuzzy-stable'].includes(visitorInfo.matchType) && (
+                <div className="mt-2 p-3 bg-purple-100 dark:bg-purple-900/30 rounded-lg border border-purple-300">
+                  <p className="text-sm text-purple-800 dark:text-purple-200">
+                    <strong>🔒 Hardware-based:</strong> You were identified using hardware characteristics that
+                    persist across browsers and incognito mode. This is harder to evade without changing hardware.
+                  </p>
+                </div>
+              )}
             </div>
 
             {visitorInfo.visitor && !visitorInfo.isNewVisitor && (
@@ -332,6 +529,52 @@ export default function Home() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Signal Contributions */}
+        {result && (
+          <div className="mb-8 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-6">
+            <h2 className="text-2xl font-bold mb-4 flex items-center gap-2">
+              <span>📊</span> Fingerprint Signal Contributions
+            </h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+              These signals combine to create your unique browser fingerprint. Higher entropy = more identifying power.
+            </p>
+
+            <div className="space-y-3">
+              {getSignalContributions().map(signal => (
+                <div key={signal.key} className="flex items-center gap-4">
+                  <div className="w-32 text-sm font-medium">{signal.name}</div>
+                  <div className="flex-1">
+                    <div className="h-6 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${signal.active ? 'bg-blue-500' : 'bg-gray-400'}`}
+                        style={{ width: `${(signal.entropy / 15) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <div className="w-20 text-right text-sm">
+                    <span className={signal.active ? 'text-blue-600 font-semibold' : 'text-gray-400'}>
+                      {signal.entropy} bits
+                    </span>
+                  </div>
+                  <div className="w-24 text-xs font-mono text-gray-500">
+                    {signal.active ? signal.hash : 'N/A'}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600 dark:text-gray-400">Total Entropy:</span>
+                <span className="font-bold">{result.entropy?.toFixed(1) || 'N/A'} bits</span>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Higher entropy means more unique. ~33 bits is enough to uniquely identify among 8 billion people.
+              </p>
+            </div>
           </div>
         )}
 

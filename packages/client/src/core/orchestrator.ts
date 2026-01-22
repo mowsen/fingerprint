@@ -27,6 +27,7 @@ import { collectAudio } from '../modules/audio';
 import { collectNavigator } from '../modules/navigator';
 import { collectScreen } from '../modules/screen';
 import { collectFonts } from '../modules/fonts';
+import { collectFontMetrics } from '../modules/font-metrics';
 import { collectTimezone } from '../modules/timezone';
 import { collectMath } from '../modules/math';
 import { collectDOMRect } from '../modules/domrect';
@@ -44,8 +45,10 @@ import { collectResistance } from '../modules/resistance';
 import { collectWorker } from '../modules/worker';
 import { collectErrors } from '../modules/errors';
 import { collectGpuTiming } from '../modules/gpu-timing';
+import { collectBehaviorSnapshot } from '../modules/behavior';
 
 // All available module names
+// Note: 'behavior' is excluded from default because it requires extended collection time
 const ALL_MODULES: ModuleName[] = [
   'canvas',
   'webgl',
@@ -53,6 +56,7 @@ const ALL_MODULES: ModuleName[] = [
   'navigator',
   'screen',
   'fonts',
+  'fontMetrics',
   'timezone',
   'math',
   'domrect',
@@ -80,6 +84,7 @@ const MODULE_COLLECTORS: Record<ModuleName, () => Promise<ModuleResult<unknown>>
   navigator: collectNavigator,
   screen: collectScreen,
   fonts: collectFonts,
+  fontMetrics: collectFontMetrics,
   timezone: collectTimezone,
   math: collectMath,
   domrect: collectDOMRect,
@@ -97,6 +102,7 @@ const MODULE_COLLECTORS: Record<ModuleName, () => Promise<ModuleResult<unknown>>
   worker: collectWorker,
   errors: collectErrors,
   gpuTiming: collectGpuTiming,
+  behavior: collectBehaviorSnapshot,
 };
 
 // Entropy estimates for each module (in bits)
@@ -107,6 +113,7 @@ const MODULE_ENTROPY: Record<ModuleName, number> = {
   navigator: 6.0,
   screen: 4.5,
   fonts: 10.0,
+  fontMetrics: 8.5, // ~34% uniqueness improvement per research
   timezone: 3.0,
   math: 4.0,
   domrect: 5.0,
@@ -124,6 +131,7 @@ const MODULE_ENTROPY: Record<ModuleName, number> = {
   worker: 5.0,
   errors: 1.0,
   gpuTiming: 8.0,
+  behavior: 6.0, // Behavioral biometrics (optional module)
 };
 
 /**

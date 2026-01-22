@@ -101,6 +101,11 @@ const FUZZY_METRIC_KEYS = [
   'fonts.fontFaceLoadFonts',
   'fonts.pixelSizeSystemSum',
   'fonts.platformVersion',
+  // Font Metrics (Phase 3)
+  'fontMetrics.keyGlyphsSum',
+  'fontMetrics.metricsSystemSum',
+  'fontMetrics.renderingCharacteristics',
+  'fontMetrics.signatures',
   // Timezone
   'timezone.location',
   'timezone.locationEpoch',
@@ -292,6 +297,10 @@ const CROSS_BROWSER_STABLE_KEYS = [
 
   // Canvas rendering - hardware-based, stable in incognito
   'canvas.textMetricsSystemSum',
+
+  // Font metrics - hardware-based glyph rendering (Phase 3)
+  'fontMetrics.keyGlyphsSum',
+  'fontMetrics.metricsSystemSum',
 
   // Math constants - engine-specific but stable
   'math.data',

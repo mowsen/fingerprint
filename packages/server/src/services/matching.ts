@@ -27,6 +27,12 @@ export interface FingerprintInput {
   ipAddress?: string;
   userAgent?: string;
   referer?: string;
+  // Phase 3: TLS fingerprint data
+  tlsJa4?: string;
+  tlsJa3?: string;
+  tlsVersion?: string;
+  tlsSource?: string;
+  httpFpHash?: string;
 }
 
 /**
@@ -51,7 +57,10 @@ export function hammingDistance(s1: string, s2: string): number {
  * Uses multi-layer matching for cross-browser recognition
  */
 export async function matchFingerprint(input: FingerprintInput): Promise<MatchResult> {
-  const { fingerprint, fuzzyHash, stableHash, gpuTimingHash, components, entropy, isFarbled, ipAddress, userAgent, referer } = input;
+  const { fingerprint, fuzzyHash, stableHash, gpuTimingHash, components, entropy, isFarbled, ipAddress, userAgent, referer, tlsJa4, tlsJa3, tlsVersion, tlsSource, httpFpHash } = input;
+
+  // Session metadata for TLS/HTTP fingerprint (Phase 3)
+  const sessionMeta = { tlsJa4, tlsJa3, tlsVersion, tlsSource, httpFpHash };
 
   // 1. Try exact browserHash match (fast path)
   const exactMatch = await prisma.fingerprint.findFirst({
@@ -62,7 +71,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
 
   if (exactMatch) {
     // Update session for existing visitor
-    await createSession(exactMatch.visitorId, exactMatch.id, ipAddress, userAgent, referer);
+    await createSession(exactMatch.visitorId, exactMatch.id, ipAddress, userAgent, referer, sessionMeta);
 
     // Apply crowd-blending validation
     const validation = await applyMatchValidation(exactMatch.visitorId, 'exact', 1.0);
@@ -107,7 +116,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         },
       });
 
-      await createSession(stableMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
+      await createSession(stableMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
 
       // Update visitor trust data (async, don't wait)
       updateVisitorTrust(stableMatch.visitorId, validation.crowdBlending).catch(console.error);
@@ -150,7 +159,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         },
       });
 
-      await createSession(gpuMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
+      await createSession(gpuMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
 
       // Update visitor trust data (async, don't wait)
       updateVisitorTrust(gpuMatch.visitorId, validation.crowdBlending).catch(console.error);
@@ -217,7 +226,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         },
       });
 
-      await createSession(bestStableMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
+      await createSession(bestStableMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
 
       // Update visitor trust data (async, don't wait)
       updateVisitorTrust(bestStableMatch.visitorId, validation.crowdBlending).catch(console.error);
@@ -287,7 +296,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     });
 
     // Create session
-    await createSession(bestMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer);
+    await createSession(bestMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
 
     // Update visitor trust data (async, don't wait)
     updateVisitorTrust(bestMatch.visitorId, validation.crowdBlending).catch(console.error);
@@ -326,7 +335,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
   const newFingerprintId = newVisitor.fingerprints[0].id;
 
   // Create session
-  await createSession(newVisitor.id, newFingerprintId, ipAddress, userAgent, referer);
+  await createSession(newVisitor.id, newFingerprintId, ipAddress, userAgent, referer, sessionMeta);
 
   return {
     matchType: 'new',
@@ -338,6 +347,17 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
 }
 
 /**
+ * Session metadata for TLS/HTTP fingerprinting (Phase 3)
+ */
+interface SessionMeta {
+  tlsJa4?: string;
+  tlsJa3?: string;
+  tlsVersion?: string;
+  tlsSource?: string;
+  httpFpHash?: string;
+}
+
+/**
  * Create or update a session
  */
 async function createSession(
@@ -345,7 +365,8 @@ async function createSession(
   fingerprintId: string,
   ipAddress?: string,
   userAgent?: string,
-  referer?: string
+  referer?: string,
+  meta?: SessionMeta
 ): Promise<void> {
   await prisma.session.create({
     data: {
@@ -354,6 +375,12 @@ async function createSession(
       ipAddress,
       userAgent,
       referer,
+      // Phase 3: TLS fingerprint data
+      tlsJa4: meta?.tlsJa4,
+      tlsJa3: meta?.tlsJa3,
+      tlsVersion: meta?.tlsVersion,
+      tlsSource: meta?.tlsSource,
+      httpFpHash: meta?.httpFpHash,
     },
   });
 }

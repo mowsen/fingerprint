@@ -7,6 +7,7 @@ import { PrismaClient } from '@prisma/client';
 import { fingerprintRouter } from './routes/fingerprint';
 import { visitorRouter } from './routes/visitor';
 import { statsRouter } from './routes/stats';
+import { tlsFingerprintMiddleware } from './middleware/tls-fingerprint';
 
 // Initialize Prisma client
 export const prisma = new PrismaClient();
@@ -28,6 +29,9 @@ app.use(helmet({
 }));
 app.use(morgan('combined'));
 app.use(express.json({ limit: '1mb' }));
+
+// TLS/HTTP fingerprint middleware (Phase 3)
+app.use(tlsFingerprintMiddleware);
 
 // Health check
 app.get('/health', (_req, res) => {

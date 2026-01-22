@@ -26,6 +26,7 @@ export type {
   NavigatorData,
   ScreenData,
   FontsData,
+  FontMetricsData,
   TimezoneData,
   MathData,
   DOMRectData,
@@ -43,6 +44,7 @@ export type {
   WorkerData,
   ErrorsData,
   GpuTimingData,
+  BehaviorData,
 
   // Utility types
   EngineInfo,
@@ -103,6 +105,23 @@ export { collectResistance, detectCanvasFarbling } from './modules/resistance';
 export { collectWorker } from './modules/worker';
 export { collectErrors } from './modules/errors';
 export { collectGpuTiming } from './modules/gpu-timing';
+export { collectFontMetrics } from './modules/font-metrics';
+export {
+  collectBehavior,
+  collectBehaviorSnapshot,
+  getBehaviorCollector,
+  BehaviorCollector,
+} from './modules/behavior';
+
+// Identity management
+export {
+  getPersistentIdentity,
+  setPersistentIdentity,
+  clearPersistentIdentity,
+  hasPersistentIdentity,
+  getIdentityStorageStatus,
+} from './core/identity';
+export type { PersistentIdentity } from './core/identity';
 
 // Default export
 import { Fingerprint } from './core/orchestrator';

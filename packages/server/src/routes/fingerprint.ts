@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import type { Router as RouterType } from 'express';
 import { z } from 'zod';
 import { matchFingerprint, updateStats } from '../services/matching';
+import { linkPersistentIdentity, signVisitorId } from '../services/identity';
+import { getTLSFingerprint, getHTTPFingerprint } from '../middleware/tls-fingerprint';
 
 export const fingerprintRouter: RouterType = Router();
 
@@ -29,6 +31,8 @@ const fingerprintSchema = z.object({
   entropy: z.number().optional(),
   timestamp: z.number().optional(),
   detectedBrowser: z.string().optional(),
+  // Persistent identity (Phase 3)
+  persistentId: z.string().optional(),
 });
 
 /**
@@ -47,7 +51,7 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const { fingerprint, fuzzyHash, stableHash, gpuTimingHash, components, entropy, detectedBrowser } = parsed.data;
+    const { fingerprint, fuzzyHash, stableHash, gpuTimingHash, components, entropy, detectedBrowser, persistentId } = parsed.data;
 
     // Extract farbling info and privacy info from components if available
     const resistanceData = components?.resistance as { data?: { isFarbled?: boolean; privacy?: string } } | undefined;
@@ -65,6 +69,10 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
     const userAgent = req.headers['user-agent'] || undefined;
     const referer = req.headers['referer'] || undefined;
 
+    // Get TLS and HTTP fingerprints (Phase 3)
+    const tlsFingerprint = getTLSFingerprint(req);
+    const httpFingerprint = getHTTPFingerprint(req);
+
     // Match fingerprint
     const result = await matchFingerprint({
       fingerprint,
@@ -77,7 +85,31 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
       ipAddress,
       userAgent,
       referer,
+      // Phase 3: TLS fingerprint data
+      tlsJa4: tlsFingerprint?.ja4 || tlsFingerprint?.ja4Hash,
+      tlsJa3: tlsFingerprint?.ja3 || tlsFingerprint?.ja3Hash,
+      tlsVersion: tlsFingerprint?.tlsVersion,
+      tlsSource: tlsFingerprint?.source,
+      httpFpHash: httpFingerprint?.hash,
     });
+
+    // Phase 3: Handle persistent identity
+    const identityResult = linkPersistentIdentity(persistentId, result.visitorId);
+
+    // If persistent ID was valid and differs from fingerprint match, prefer persistent ID
+    // This handles cases where fingerprint changed but identity persisted
+    let finalVisitorId = result.visitorId;
+    let persistentIdUsed = false;
+    let persistentIdValid = false;
+
+    if (identityResult.persistentIdValid && identityResult.visitorId !== result.visitorId) {
+      // Persistent identity takes precedence for returning users
+      finalVisitorId = identityResult.visitorId;
+      persistentIdUsed = true;
+      persistentIdValid = true;
+    } else if (identityResult.persistentIdValid) {
+      persistentIdValid = true;
+    }
 
     // Update statistics asynchronously
     updateStats(result.matchType, entropy).catch(console.error);
@@ -112,13 +144,13 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
     // Determine browser for current request (prefer client detection)
     const currentBrowser = clientBrowser || parseBrowser(userAgent);
 
-    // Return result with visitor history
+    // Return result with visitor history and persistent identity
     return res.json({
-      visitorId: result.visitorId,
+      visitorId: finalVisitorId,
       confidence: result.confidence,
-      matchType: result.matchType,
+      matchType: persistentIdUsed ? 'persistent' : result.matchType,
       requestId: result.fingerprintId,
-      isNewVisitor: result.isNewVisitor,
+      isNewVisitor: result.isNewVisitor && !persistentIdValid,
       // Visitor info
       visitor: {
         firstSeen: firstSeen.toISOString(),
@@ -134,6 +166,20 @@ fingerprintRouter.post('/', async (req: Request, res: Response) => {
       },
       // Recent visit history
       recentVisits,
+      // Phase 3: Persistent identity info
+      persistentIdentity: {
+        used: persistentIdUsed,
+        valid: persistentIdValid,
+        shouldUpdate: identityResult.shouldUpdatePersistent,
+        newPersistentId: identityResult.newPersistentId,
+        signature: signVisitorId(finalVisitorId),
+      },
+      // Phase 3: TLS fingerprint info (for debugging)
+      tlsFingerprint: tlsFingerprint?.source !== 'none' ? {
+        source: tlsFingerprint?.source,
+        ja4: tlsFingerprint?.ja4 ? true : false,
+        ja3: tlsFingerprint?.ja3 ? true : false,
+      } : undefined,
     });
   } catch (error) {
     console.error('Error processing fingerprint:', error);
