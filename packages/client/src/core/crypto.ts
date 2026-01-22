@@ -285,6 +285,9 @@ export function calculateSimilarity(hash1: string, hash2: string): number {
  * Cross-browser stable keys - features that are stable across different browsers on the same device
  * These are primarily hardware and OS-level characteristics that don't vary between Chrome/Firefox/Safari
  * Based on CreepJS research - these are stable even in incognito mode
+ *
+ * IMPORTANT: Safari Private mode randomizes canvas, WebGL pixels, and audio.
+ * But fonts, speech, CSS, timezone, and intl remain stable!
  */
 const CROSS_BROWSER_STABLE_KEYS = [
   // Hardware (very stable across browsers AND incognito)
@@ -297,17 +300,21 @@ const CROSS_BROWSER_STABLE_KEYS = [
   'screen.pixelDepth',
 
   // WebGL hardware info (stable across browsers on same GPU)
+  // Note: Safari Private randomizes rendered pixels but parameters may be stable
   'webgl.gpu',
   'webgl.parameters',
+  'webgl.extensions',
   'worker.webglRenderer',
   'worker.webglVendor',
 
   // Audio fingerprint - HARDWARE BASED, stable in incognito!
+  // Note: Safari Private may randomize these
   'audio.sampleSum',
   'audio.compressorGainReduction',
   'audio.values',
 
   // Canvas rendering - hardware-based, stable in incognito
+  // Note: Safari Private randomizes canvas output
   'canvas.textMetricsSystemSum',
 
   // Font metrics - hardware-based glyph rendering (Phase 3)
@@ -330,6 +337,48 @@ const CROSS_BROWSER_STABLE_KEYS = [
   'resistance.engine',
   'resistance.phantomSignature',
   'resistance.timerPrecision',
+
+  // === SAFARI PRIVATE MODE STABLE SIGNALS ===
+  // These are NOT randomized by Safari ITP and remain consistent
+
+  // Fonts - VERY STABLE in Safari Private (critical for identification)
+  'fonts.apps',
+  'fonts.fontFaceLoadFonts',
+  'fonts.pixelSizeSystemSum',
+  'fonts.platformVersion',
+
+  // Speech synthesis - voices don't change in Private mode
+  'speech.languages',
+  'speech.defaultVoiceName',
+  'speech.defaultVoiceLang',
+  'speech.local',
+  'speech.remote',
+
+  // CSS - Safari doesn't randomize CSS computed styles
+  'css.computedStyle',
+  'css.system',
+  'cssmedia.matchMediaCSS',
+  'cssmedia.screenQuery',
+
+  // Timezone/Intl - stable across all modes
+  'timezone.location',
+  'timezone.zone',
+  'timezone.offset',
+  'intl.locale',
+  'intl.dateTimeFormat',
+  'intl.numberFormat',
+
+  // Navigator properties that Safari doesn't randomize
+  'navigator.language',
+  'navigator.languages',
+  'navigator.platform',
+  'navigator.vendor',
+
+  // ITP Detection - the randomization PATTERN is itself a fingerprint!
+  // Safari's ITP creates a unique signature based on how it randomizes
+  'itpDetection.itpSignature',
+  'itpDetection.randomizationPattern',
+  'itpDetection.isLikelySafariPrivate',
 ];
 
 /**

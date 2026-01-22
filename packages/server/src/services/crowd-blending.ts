@@ -175,7 +175,7 @@ export async function getCrowdBlendingScores(
  */
 export function shouldTrustMatch(
   crowdBlending: CrowdBlendingResult,
-  matchType: 'exact' | 'stable' | 'gpu' | 'fuzzy-stable' | 'fuzzy' | 'new'
+  matchType: 'exact' | 'stable' | 'gpu' | 'fonts' | 'fuzzy-stable' | 'fuzzy' | 'new'
 ): boolean {
   if (matchType === 'new') {
     return true; // New visitors are always "trusted" (first visit)
@@ -194,6 +194,11 @@ export function shouldTrustMatch(
     case 'gpu':
       // GPU timing matches are hardware-based, very reliable
       return true; // GPU matches are inherently trustworthy
+
+    case 'fonts':
+      // Font-based matches are very stable even in Safari Private mode
+      // Trust them - fonts are hard to spoof and don't change between sessions
+      return true;
 
     case 'fuzzy-stable':
       // Fuzzy stable matches are still hardware-based
@@ -215,7 +220,7 @@ export function shouldTrustMatch(
  */
 export function getConfidenceBoost(
   crowdBlending: CrowdBlendingResult,
-  matchType: 'exact' | 'stable' | 'gpu' | 'fuzzy-stable' | 'fuzzy' | 'new'
+  matchType: 'exact' | 'stable' | 'gpu' | 'fonts' | 'fuzzy-stable' | 'fuzzy' | 'new'
 ): number {
   const baseBoost = crowdBlending.score;
 
@@ -235,6 +240,10 @@ export function getConfidenceBoost(
     case 'gpu':
       // Moderate boost for GPU matches
       return baseBoost * 0.08;
+
+    case 'fonts':
+      // Moderate boost for font-based matches (reliable in Safari Private)
+      return baseBoost * 0.12;
 
     case 'fuzzy-stable':
       // Higher boost for fuzzy-stable (benefits more from validation)

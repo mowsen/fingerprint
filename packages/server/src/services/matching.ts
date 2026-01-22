@@ -8,7 +8,7 @@ import {
 } from './crowd-blending';
 
 export interface MatchResult {
-  matchType: 'exact' | 'stable' | 'gpu' | 'fuzzy-stable' | 'fuzzy' | 'new';
+  matchType: 'exact' | 'stable' | 'gpu' | 'fonts' | 'fuzzy-stable' | 'fuzzy' | 'new';
   confidence: number;
   visitorId: string;
   fingerprintId: string;
@@ -213,6 +213,91 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         matchType: 'gpu',
         confidence: validation.confidence,
         visitorId: gpuMatch.visitorId,
+        fingerprintId: newFingerprint.id,
+        isNewVisitor: false,
+        crowdBlending: validation.crowdBlending,
+      };
+    }
+  }
+
+  // 3.5. Try FONT-BASED MATCH (Safari Private mode stable!)
+  // Fonts are not randomized by Safari ITP, so they're reliable for identification
+  const fontsComponent = components?.fonts as { hash?: string } | undefined;
+  const fontHash = fontsComponent?.hash;
+  const hasFontHash = fontHash && fontHash.length >= 8;
+
+  if (hasFontHash) {
+    // Look for fingerprints with matching font hash in components
+    // We need to search in the JSON components field
+    const fontCandidates = await prisma.fingerprint.findMany({
+      where: {
+        // Use raw query to search in JSON
+        components: {
+          path: ['fonts', 'hash'],
+          equals: fontHash,
+        },
+      },
+      select: { id: true, visitorId: true },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+
+    if (fontCandidates.length > 0) {
+      const fontMatch = fontCandidates[0];
+
+      // Also check speech and timezone for additional confidence
+      const speechComponent = components?.speech as { hash?: string } | undefined;
+      const timezoneComponent = components?.timezone as { hash?: string } | undefined;
+
+      // Check if other Safari-stable signals also match
+      const otherCandidateData = await prisma.fingerprint.findFirst({
+        where: { id: fontMatch.id },
+        select: { components: true },
+      });
+
+      let matchConfidence = 0.75; // Base confidence for font match
+
+      if (otherCandidateData?.components) {
+        const storedComponents = otherCandidateData.components as Record<string, { hash?: string }>;
+
+        // Boost confidence if speech also matches
+        if (speechComponent?.hash && storedComponents?.speech?.hash === speechComponent.hash) {
+          matchConfidence += 0.10;
+        }
+
+        // Boost confidence if timezone also matches
+        if (timezoneComponent?.hash && storedComponents?.timezone?.hash === timezoneComponent.hash) {
+          matchConfidence += 0.05;
+        }
+      }
+
+      // Apply crowd-blending validation
+      const validation = await applyMatchValidation(fontMatch.visitorId, 'fonts' as MatchResult['matchType'], matchConfidence);
+
+      // Store new fingerprint for existing visitor
+      const newFingerprint = await prisma.fingerprint.create({
+        data: {
+          visitorId: fontMatch.visitorId,
+          fingerprintHash: fingerprint,
+          fuzzyHash,
+          stableHash,
+          gpuTimingHash: validatedGpuTimingHash,
+          components: components as Prisma.InputJsonValue,
+          entropy,
+          confidence: validation.confidence,
+          isFarbled: isFarbled || false,
+        },
+      });
+
+      await createSession(fontMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
+
+      // Update visitor trust data (async, don't wait)
+      updateVisitorTrust(fontMatch.visitorId, validation.crowdBlending).catch(console.error);
+
+      return {
+        matchType: 'fonts',
+        confidence: validation.confidence,
+        visitorId: fontMatch.visitorId,
         fingerprintId: newFingerprint.id,
         isNewVisitor: false,
         crowdBlending: validation.crowdBlending,

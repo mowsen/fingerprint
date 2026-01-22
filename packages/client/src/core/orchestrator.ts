@@ -46,6 +46,7 @@ import { collectWorker } from '../modules/worker';
 import { collectErrors } from '../modules/errors';
 import { collectGpuTiming } from '../modules/gpu-timing';
 import { collectBehaviorSnapshot } from '../modules/behavior';
+import { collectITPDetection } from '../modules/itp-detection';
 
 // All available module names
 // Note: 'behavior' is excluded from default because it requires extended collection time
@@ -74,6 +75,7 @@ const ALL_MODULES: ModuleName[] = [
   'worker',
   'errors',
   'gpuTiming',
+  'itpDetection', // Safari ITP detection
 ];
 
 // Module collectors map
@@ -103,6 +105,7 @@ const MODULE_COLLECTORS: Record<ModuleName, () => Promise<ModuleResult<unknown>>
   errors: collectErrors,
   gpuTiming: collectGpuTiming,
   behavior: collectBehaviorSnapshot,
+  itpDetection: collectITPDetection,
 };
 
 // Entropy estimates for each module (in bits)
@@ -132,6 +135,7 @@ const MODULE_ENTROPY: Record<ModuleName, number> = {
   errors: 1.0,
   gpuTiming: 8.0,
   behavior: 6.0, // Behavioral biometrics (optional module)
+  itpDetection: 5.0, // Safari ITP randomization pattern detection
 };
 
 /**

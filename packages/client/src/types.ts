@@ -28,7 +28,8 @@ export type ModuleName =
   | 'worker'
   | 'errors'
   | 'gpuTiming'
-  | 'behavior';
+  | 'behavior'
+  | 'itpDetection';
 
 // Configuration options
 export interface FingerprintConfig {
@@ -315,6 +316,20 @@ export interface ResistanceData {
   phantomSignature?: string;
   hasCrossScopeLies?: boolean;
   crossScopeInconsistencies?: string[];
+}
+
+// ITP Detection module data (Safari Private mode detection)
+export interface ITPDetectionData {
+  isLikelySafariPrivate: boolean;
+  itpSignature: string;
+  canvasRandomized: boolean;
+  audioRandomized: boolean;
+  webglRandomized: boolean;
+  canvasStability: number;
+  audioStability: number;
+  webglStability: number;
+  randomizationPattern: string;
+  entropyScore: number;
 }
 
 // GPU Timing module data (DRAWNAPART)
