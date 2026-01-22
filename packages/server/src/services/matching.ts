@@ -62,6 +62,12 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
   // Session metadata for TLS/HTTP fingerprint (Phase 3)
   const sessionMeta = { tlsJa4, tlsJa3, tlsVersion, tlsSource, httpFpHash };
 
+  // Validate that we have usable fingerprint data
+  // Empty fingerprint means client couldn't collect enough data for identification
+  const hasValidFingerprint = fingerprint && fingerprint.length === 64;
+  const hasValidFuzzyHash = fuzzyHash && fuzzyHash.length === 64;
+  const hasValidStableHash = stableHash && stableHash.length === 64;
+
   // Validate GPU timing data - only use if gpuScore > 0 (indicates real measurements)
   // Browsers throttle performance.now() for privacy, which can result in all-zero timings
   const gpuTimingData = components?.gpuTiming as { data?: { gpuScore?: number; supported?: boolean } } | undefined;
@@ -70,35 +76,66 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     (gpuTimingData?.data?.gpuScore ?? 0) > 0.1;
   const validatedGpuTimingHash = isGpuTimingValid ? gpuTimingHash : undefined;
 
-  // 1. Try exact browserHash match (fast path)
-  const exactMatch = await prisma.fingerprint.findFirst({
-    where: { fingerprintHash: fingerprint },
-    include: { visitor: true },
-    orderBy: { createdAt: 'desc' },
-  });
+  // If we have no valid hashes at all, create an anonymous low-confidence visitor
+  if (!hasValidFingerprint && !hasValidFuzzyHash && !hasValidStableHash && !validatedGpuTimingHash) {
+    const newVisitor = await prisma.visitor.create({
+      data: {
+        fingerprints: {
+          create: {
+            fingerprintHash: `anon-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            fuzzyHash: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+            components: components as Prisma.InputJsonValue,
+            entropy: entropy || 0,
+            confidence: 0.1, // Very low confidence for anonymous visitors
+            isFarbled: isFarbled || false,
+          },
+        },
+      },
+      include: { fingerprints: true },
+    }) as { id: string; fingerprints: { id: string }[] };
 
-  if (exactMatch) {
-    // Update session for existing visitor
-    await createSession(exactMatch.visitorId, exactMatch.id, ipAddress, userAgent, referer, sessionMeta);
-
-    // Apply crowd-blending validation
-    const validation = await applyMatchValidation(exactMatch.visitorId, 'exact', 1.0);
-
-    // Update visitor trust data (async, don't wait)
-    updateVisitorTrust(exactMatch.visitorId, validation.crowdBlending).catch(console.error);
+    await createSession(newVisitor.id, newVisitor.fingerprints[0].id, ipAddress, userAgent, referer, sessionMeta);
 
     return {
-      matchType: 'exact',
-      confidence: validation.confidence,
-      visitorId: exactMatch.visitorId,
-      fingerprintId: exactMatch.id,
-      isNewVisitor: false,
-      crowdBlending: validation.crowdBlending,
+      matchType: 'new',
+      confidence: 0.1, // Very low confidence
+      visitorId: newVisitor.id,
+      fingerprintId: newVisitor.fingerprints[0].id,
+      isNewVisitor: true,
     };
   }
 
-  // 2. Try exact stableHash match (CROSS-BROWSER MATCH!)
-  if (stableHash) {
+  // 1. Try exact browserHash match (fast path) - only if we have a valid fingerprint
+  if (hasValidFingerprint) {
+    const exactMatch = await prisma.fingerprint.findFirst({
+      where: { fingerprintHash: fingerprint },
+      include: { visitor: true },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (exactMatch) {
+      // Update session for existing visitor
+      await createSession(exactMatch.visitorId, exactMatch.id, ipAddress, userAgent, referer, sessionMeta);
+
+      // Apply crowd-blending validation
+      const validation = await applyMatchValidation(exactMatch.visitorId, 'exact', 1.0);
+
+      // Update visitor trust data (async, don't wait)
+      updateVisitorTrust(exactMatch.visitorId, validation.crowdBlending).catch(console.error);
+
+      return {
+        matchType: 'exact',
+        confidence: validation.confidence,
+        visitorId: exactMatch.visitorId,
+        fingerprintId: exactMatch.id,
+        isNewVisitor: false,
+        crowdBlending: validation.crowdBlending,
+      };
+    }
+  }
+
+  // 2. Try exact stableHash match (CROSS-BROWSER MATCH!) - only if we have a valid stable hash
+  if (hasValidStableHash) {
     const stableMatch = await prisma.fingerprint.findFirst({
       where: { stableHash },
       include: { visitor: true },
@@ -184,7 +221,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
   }
 
   // 4. Try fuzzy stableHash match (lower threshold for hardware features)
-  if (stableHash) {
+  if (hasValidStableHash) {
     const stableCandidates = await prisma.fingerprint.findMany({
       where: { stableHash: { not: null } },
       select: { id: true, visitorId: true, stableHash: true },
@@ -250,73 +287,75 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
     }
   }
 
-  // 5. Try fuzzy browserHash match (original behavior)
-  const fuzzyThreshold = 8; // Allow up to 8 characters difference in 64-char hash
-  const candidates = await prisma.fingerprint.findMany({
-    select: {
-      id: true,
-      visitorId: true,
-      fuzzyHash: true,
-    },
-    orderBy: { createdAt: 'desc' },
-    take: 1000, // Limit for performance
-  });
-
-  let bestMatch: { id: string; visitorId: string; distance: number } | null = null;
-
-  for (const candidate of candidates) {
-    try {
-      const distance = hammingDistance(candidate.fuzzyHash, fuzzyHash);
-      if (distance <= fuzzyThreshold) {
-        if (!bestMatch || distance < bestMatch.distance) {
-          bestMatch = {
-            id: candidate.id,
-            visitorId: candidate.visitorId,
-            distance,
-          };
-        }
-      }
-    } catch {
-      // Skip if hash lengths don't match
-      continue;
-    }
-  }
-
-  if (bestMatch) {
-    const baseConfidence = 1 - bestMatch.distance / 64;
-
-    // Apply crowd-blending validation first
-    const validation = await applyMatchValidation(bestMatch.visitorId, 'fuzzy', baseConfidence);
-
-    // Store new fingerprint for existing visitor
-    const newFingerprint = await prisma.fingerprint.create({
-      data: {
-        visitorId: bestMatch.visitorId,
-        fingerprintHash: fingerprint,
-        fuzzyHash,
-        stableHash,
-        gpuTimingHash: validatedGpuTimingHash,
-        components: components as Prisma.InputJsonValue,
-        entropy,
-        confidence: validation.confidence,
-        isFarbled: isFarbled || false,
+  // 5. Try fuzzy browserHash match (original behavior) - only if we have a valid fuzzy hash
+  if (hasValidFuzzyHash) {
+    const fuzzyThreshold = 8; // Allow up to 8 characters difference in 64-char hash
+    const candidates = await prisma.fingerprint.findMany({
+      select: {
+        id: true,
+        visitorId: true,
+        fuzzyHash: true,
       },
+      orderBy: { createdAt: 'desc' },
+      take: 1000, // Limit for performance
     });
 
-    // Create session
-    await createSession(bestMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
+    let bestMatch: { id: string; visitorId: string; distance: number } | null = null;
 
-    // Update visitor trust data (async, don't wait)
-    updateVisitorTrust(bestMatch.visitorId, validation.crowdBlending).catch(console.error);
+    for (const candidate of candidates) {
+      try {
+        const distance = hammingDistance(candidate.fuzzyHash, fuzzyHash);
+        if (distance <= fuzzyThreshold) {
+          if (!bestMatch || distance < bestMatch.distance) {
+            bestMatch = {
+              id: candidate.id,
+              visitorId: candidate.visitorId,
+              distance,
+            };
+          }
+        }
+      } catch {
+        // Skip if hash lengths don't match
+        continue;
+      }
+    }
 
-    return {
-      matchType: 'fuzzy',
-      confidence: validation.confidence,
-      visitorId: bestMatch.visitorId,
-      fingerprintId: newFingerprint.id,
-      isNewVisitor: false,
-      crowdBlending: validation.crowdBlending,
-    };
+    if (bestMatch) {
+      const baseConfidence = 1 - bestMatch.distance / 64;
+
+      // Apply crowd-blending validation first
+      const validation = await applyMatchValidation(bestMatch.visitorId, 'fuzzy', baseConfidence);
+
+      // Store new fingerprint for existing visitor
+      const newFingerprint = await prisma.fingerprint.create({
+        data: {
+          visitorId: bestMatch.visitorId,
+          fingerprintHash: fingerprint,
+          fuzzyHash,
+          stableHash,
+          gpuTimingHash: validatedGpuTimingHash,
+          components: components as Prisma.InputJsonValue,
+          entropy,
+          confidence: validation.confidence,
+          isFarbled: isFarbled || false,
+        },
+      });
+
+      // Create session
+      await createSession(bestMatch.visitorId, newFingerprint.id, ipAddress, userAgent, referer, sessionMeta);
+
+      // Update visitor trust data (async, don't wait)
+      updateVisitorTrust(bestMatch.visitorId, validation.crowdBlending).catch(console.error);
+
+      return {
+        matchType: 'fuzzy',
+        confidence: validation.confidence,
+        visitorId: bestMatch.visitorId,
+        fingerprintId: newFingerprint.id,
+        isNewVisitor: false,
+        crowdBlending: validation.crowdBlending,
+      };
+    }
   }
 
   // 6. Create new visitor

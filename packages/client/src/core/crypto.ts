@@ -215,6 +215,7 @@ export async function generateFuzzyHash(components: ComponentResults): Promise<s
 
   // Extract all metrics from components
   const metricsMap: Record<string, unknown> = {};
+  let validMetricCount = 0;
 
   for (const [sectionKey, section] of Object.entries(components)) {
     if (!section || !section.data) continue;
@@ -222,7 +223,18 @@ export async function generateFuzzyHash(components: ComponentResults): Promise<s
     for (const [key, value] of Object.entries(section.data as Record<string, unknown>)) {
       if (key === '$hash' || key === 'lied') continue;
       metricsMap[`${sectionKey}.${key}`] = value;
+      if (value !== undefined && value !== null && value !== '') {
+        validMetricCount++;
+      }
     }
+  }
+
+  // Require at least 20 valid metrics to generate a meaningful fuzzy hash
+  // Otherwise, users with many failed modules could falsely match
+  const MIN_VALID_METRICS = 20;
+  if (validMetricCount < MIN_VALID_METRICS) {
+    // Return a hash that won't match anything (filled with 'x' to distinguish from valid hashes)
+    return '';
   }
 
   // Calculate bin size
@@ -326,12 +338,24 @@ const CROSS_BROWSER_STABLE_KEYS = [
  */
 export async function generateStableHash(components: ComponentResults): Promise<string> {
   const stableValues: unknown[] = [];
+  let validCount = 0;
 
   for (const key of CROSS_BROWSER_STABLE_KEYS) {
     const [section, prop] = key.split('.');
     const sectionData = components[section as keyof ComponentResults];
     const value = sectionData?.data?.[prop as keyof typeof sectionData.data];
+
+    if (value !== undefined && value !== null && value !== '') {
+      validCount++;
+    }
     stableValues.push(value ?? null);
+  }
+
+  // Require at least 30% of stable keys to have valid values
+  // Otherwise, the stable hash could falsely match between users with failures
+  const minValidRatio = 0.3;
+  if (validCount < CROSS_BROWSER_STABLE_KEYS.length * minValidRatio) {
+    return '';
   }
 
   return sha256(stableValues);
@@ -350,6 +374,13 @@ export async function generateFingerprint(components: ComponentResults): Promise
     if (component?.hash) {
       componentHashes.push(component.hash);
     }
+  }
+
+  // Require at least 5 valid component hashes to generate a fingerprint
+  // This prevents false matches when most modules fail
+  const MIN_COMPONENT_HASHES = 5;
+  if (componentHashes.length < MIN_COMPONENT_HASHES) {
+    return '';
   }
 
   // Generate final hash from all component hashes

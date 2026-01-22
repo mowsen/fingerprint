@@ -22,10 +22,18 @@ function parseBrowser(userAgent?: string): string {
 }
 
 // Validation schema for fingerprint submission
+// Note: fingerprint and fuzzyHash can be empty strings when data collection fails
+// (e.g., too few modules succeeded). Server should handle this gracefully.
 const fingerprintSchema = z.object({
-  fingerprint: z.string().length(64),
-  fuzzyHash: z.string().length(64),
-  stableHash: z.string().length(64).optional(),
+  fingerprint: z.string().refine((s) => s === '' || s.length === 64, {
+    message: 'Fingerprint must be empty or 64 characters',
+  }),
+  fuzzyHash: z.string().refine((s) => s === '' || s.length === 64, {
+    message: 'Fuzzy hash must be empty or 64 characters',
+  }),
+  stableHash: z.string().refine((s) => s === '' || s.length === 64, {
+    message: 'Stable hash must be empty or 64 characters',
+  }).optional(),
   gpuTimingHash: z.string().length(64).optional(),
   components: z.record(z.unknown()),
   entropy: z.number().optional(),
