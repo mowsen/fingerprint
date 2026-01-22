@@ -308,7 +308,20 @@ export default function Home() {
     if (!result?.components) return [];
 
     return SIGNAL_CONTRIBUTIONS.map(signal => {
-      const component = result.components[signal.key];
+      const component = result.components[signal.key] as { hash?: string; data?: { gpuScore?: number; supported?: boolean }; error?: string } | undefined;
+
+      // Special handling for gpuTiming - only show as active if gpuScore > 0.1
+      // Browsers throttle performance.now() for privacy, making GPU timing unreliable
+      if (signal.key === 'gpuTiming') {
+        const gpuData = component?.data;
+        const isGpuValid = gpuData?.supported === true && (gpuData?.gpuScore ?? 0) > 0.1;
+        return {
+          ...signal,
+          active: isGpuValid,
+          hash: isGpuValid ? (component?.hash?.slice(0, 8) || 'N/A') : 'N/A',
+        };
+      }
+
       const hasData = component && !component.error && component.hash;
       return {
         ...signal,
