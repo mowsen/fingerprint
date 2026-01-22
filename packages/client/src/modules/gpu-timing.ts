@@ -174,15 +174,21 @@ export async function collectGpuTiming(): Promise<ModuleResult<GpuTimingData>> {
     // Calculate GPU score (characteristic value based on timing distribution)
     const gpuScore = timings.reduce((a, b) => a + b, 0) / timings.length;
 
+    // Check if timing data is valid (browsers throttle performance.now() for privacy)
+    // If all timings are 0 or gpuScore is below threshold, timing is not usable
+    const hasValidTimings = timings.some((t) => t > 0) && gpuScore > 0.1;
+
     const data: GpuTimingData = {
       timings,
       pattern,
       gpuScore,
-      supported: true,
+      supported: hasValidTimings,
     };
 
+    // Only return a hash if we have valid timing data
+    // Invalid/zero timings would create false matches across different users
     return {
-      hash: await sha256(data),
+      hash: hasValidTimings ? await sha256(data) : '',
       data,
     };
   } catch (error) {

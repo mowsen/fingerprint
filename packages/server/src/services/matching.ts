@@ -62,6 +62,14 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
   // Session metadata for TLS/HTTP fingerprint (Phase 3)
   const sessionMeta = { tlsJa4, tlsJa3, tlsVersion, tlsSource, httpFpHash };
 
+  // Validate GPU timing data - only use if gpuScore > 0 (indicates real measurements)
+  // Browsers throttle performance.now() for privacy, which can result in all-zero timings
+  const gpuTimingData = components?.gpuTiming as { data?: { gpuScore?: number; supported?: boolean } } | undefined;
+  const isGpuTimingValid = gpuTimingHash &&
+    gpuTimingData?.data?.supported === true &&
+    (gpuTimingData?.data?.gpuScore ?? 0) > 0.1;
+  const validatedGpuTimingHash = isGpuTimingValid ? gpuTimingHash : undefined;
+
   // 1. Try exact browserHash match (fast path)
   const exactMatch = await prisma.fingerprint.findFirst({
     where: { fingerprintHash: fingerprint },
@@ -108,7 +116,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
           fingerprintHash: fingerprint,
           fuzzyHash,
           stableHash,
-          gpuTimingHash,
+          gpuTimingHash: validatedGpuTimingHash,
           components: components as Prisma.InputJsonValue,
           entropy,
           confidence: validation.confidence,
@@ -133,9 +141,9 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
   }
 
   // 3. Try GPU timing hash match (DRAWNAPART)
-  if (gpuTimingHash) {
+  if (validatedGpuTimingHash) {
     const gpuMatch = await prisma.fingerprint.findFirst({
-      where: { gpuTimingHash },
+      where: { gpuTimingHash: validatedGpuTimingHash },
       include: { visitor: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -151,7 +159,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
           fingerprintHash: fingerprint,
           fuzzyHash,
           stableHash,
-          gpuTimingHash,
+          gpuTimingHash: validatedGpuTimingHash,
           components: components as Prisma.InputJsonValue,
           entropy,
           confidence: validation.confidence,
@@ -218,7 +226,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
           fingerprintHash: fingerprint,
           fuzzyHash,
           stableHash,
-          gpuTimingHash,
+          gpuTimingHash: validatedGpuTimingHash,
           components: components as Prisma.InputJsonValue,
           entropy,
           confidence: validation.confidence,
@@ -287,7 +295,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
         fingerprintHash: fingerprint,
         fuzzyHash,
         stableHash,
-        gpuTimingHash,
+        gpuTimingHash: validatedGpuTimingHash,
         components: components as Prisma.InputJsonValue,
         entropy,
         confidence: validation.confidence,
@@ -319,7 +327,7 @@ export async function matchFingerprint(input: FingerprintInput): Promise<MatchRe
           fingerprintHash: fingerprint,
           fuzzyHash,
           stableHash,
-          gpuTimingHash,
+          gpuTimingHash: validatedGpuTimingHash,
           components: components as Prisma.InputJsonValue,
           entropy,
           confidence: 1.0,
