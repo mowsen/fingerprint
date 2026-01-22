@@ -35,6 +35,12 @@ const MATCH_TYPE_INFO: Record<string, { name: string; description: string; icon:
     icon: '≈',
     color: 'yellow',
   },
+  fonts: {
+    name: 'Font-Based Match (Safari Private)',
+    description: 'Identified via system fonts, which remain stable even in Safari Private mode where canvas/audio are randomized. This is a hardware-based signal that persists across privacy modes.',
+    icon: '🔤',
+    color: 'teal',
+  },
   persistent: {
     name: 'Persistent Identity (Cookie/Storage)',
     description: 'Identified via stored visitor ID in cookies or localStorage. This is the easiest method to evade - just clear your browser data!',
@@ -91,7 +97,7 @@ export default function Home() {
       const stableModules = [
         'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'fontMetrics', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
-        'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming'
+        'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming', 'itpDetection'
       ] as const;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fp = new Fingerprint({ modules: stableModules as any, debug: false });
@@ -127,7 +133,7 @@ export default function Home() {
       const stableModules = [
         'canvas', 'webgl', 'audio', 'navigator', 'screen', 'fonts', 'fontMetrics', 'timezone',
         'math', 'intl', 'webrtc', 'svg', 'speech', 'css', 'cssmedia', 'media',
-        'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming'
+        'window', 'headless', 'lies', 'resistance', 'worker', 'errors', 'gpuTiming', 'itpDetection'
       ] as const;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const fp = new Fingerprint({
@@ -144,11 +150,16 @@ export default function Home() {
         // Detect browser from client-side (more accurate than user-agent parsing)
         const { LIKE_BRAVE, isBraveBrowser, IS_GECKO, IS_WEBKIT } = await import('@anthropic/fingerprint-client');
         let detectedBrowser = 'Chrome';
+
+        // Safari detection via user agent (most reliable for Safari)
+        const ua = navigator.userAgent;
+        const isSafariUA = ua.includes('Safari/') && !ua.includes('Chrome/') && !ua.includes('Chromium/');
+
         if (LIKE_BRAVE || isBraveBrowser()) {
           detectedBrowser = 'Brave';
         } else if (IS_GECKO) {
           detectedBrowser = 'Firefox';
-        } else if (IS_WEBKIT) {
+        } else if (IS_WEBKIT || isSafariUA) {
           detectedBrowser = 'Safari';
         }
 
@@ -288,8 +299,9 @@ export default function Home() {
     }
   };
 
-  // Get match type info
+  // Get match type info - use matchType to determine if new visitor (more reliable than isNewVisitor flag)
   const matchInfo = visitorInfo ? MATCH_TYPE_INFO[visitorInfo.matchType] || MATCH_TYPE_INFO.new : null;
+  const isNewVisitor = visitorInfo?.matchType === 'new';
 
   // Calculate which signals contributed
   const getSignalContributions = () => {
@@ -389,13 +401,13 @@ export default function Home() {
 
         {visitorInfo && matchInfo && (
           <div className={`mb-8 p-6 rounded-lg border-2 ${
-            visitorInfo.isNewVisitor
+            isNewVisitor
               ? 'bg-blue-50 dark:bg-blue-950 border-blue-400'
               : 'bg-green-50 dark:bg-green-950 border-green-400'
           }`}>
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-xl font-bold flex items-center gap-2">
-                {visitorInfo.isNewVisitor ? (
+                {isNewVisitor ? (
                   <>
                     <span className="text-2xl">👋</span>
                     <span>New Visitor</span>
@@ -466,7 +478,7 @@ export default function Home() {
               )}
             </div>
 
-            {visitorInfo.visitor && !visitorInfo.isNewVisitor && (
+            {visitorInfo.visitor && !isNewVisitor && (
               <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
                   <div>
